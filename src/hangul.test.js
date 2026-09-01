@@ -1,5 +1,6 @@
 // 자모 분해 확인 테스트. 실행: node src/hangul.test.js
-import { decompose, decomposeToString, decomposeToKeysString } from './hangul.js';
+import { decompose, decomposeToString, decomposeToKeysString,
+         decomposeDetailed, decomposeToKeysDetailed } from './hangul.js';
 
 let pass = 0, total = 0;
 
@@ -41,6 +42,26 @@ console.log('\n[쪼개면 안 되는 것]');
   ['꽃', 'ㄲㅗㅊ'],  // 쌍자음은 Shift 조합이지만 키는 하나
   ['있다', 'ㅇㅣㅆㄷㅏ'],
 ].forEach(([input, expected]) => check(`"${input}"`, decomposeToKeysString(input), expected));
+
+// ── 4) 글자 위치 꼬리표 ───────────────────────────────────────
+console.log('\n[글자 위치 꼬리표]');
+
+// '값' 은 키 4개로 펴지지만 모두 원문 0번 글자에서 나와야 한다.
+const gaps = decomposeToKeysDetailed('값');
+check('"값" 키 목록', gaps.map(k => k.key).join(''), 'ㄱㅏㅂㅅ');
+check('"값" 글자번호', gaps.map(k => k.charIndex).join(''), '0000');
+check('"값" 역할', gaps.map(k => k.role).join(','), 'cho,jung,jong,jong');
+check('"값" 겹받침표시', gaps.map(k => k.fromComplex ? 'Y' : 'N').join(''), 'NNYY');
+
+// 글자마다 칸 수가 달라도(가=2칸, 값=4칸) 번호는 정확히 따라가야 한다.
+check('"가값" 글자번호', decomposeToKeysDetailed('가값').map(k => k.charIndex).join(''), '001111');
+check('"안녕" 글자번호', decomposeDetailed('안녕').map(k => k.charIndex).join(''), '000111');
+check('"타자 연습" 글자번호', decomposeDetailed('타자 연습').map(k => k.charIndex).join(''), '00112333444');
+
+// 오류가 난 키에서 원문 글자를 되찾을 수 있어야 한다 (3차시 색칠에 필요).
+const text = '안녕하세요';
+const third = decomposeToKeysDetailed(text)[2];   // 3번째 키 = '안'의 받침 ㄴ
+check('3번째 키가 속한 글자', [...text][third.charIndex], '안');
 
 console.log(`\n${pass}/${total} 통과`);
 

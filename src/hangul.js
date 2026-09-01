@@ -98,3 +98,53 @@ export function decomposeToKeys(text) {
 export function decomposeToKeysString(text) {
   return decomposeToKeys(text).join('');
 }
+
+// ─────────────────────────────────────────────────────────────
+// 여기부터: 각 자모/키가 '원래 몇 번째 글자에서 나왔는지' 꼬리표를 붙인다.
+//
+// 위의 decompose 계열은 자모를 한 줄로 펴기만 해서, 오류를 찾아도
+// 그게 원문의 몇 번째 글자였는지 되돌릴 수 없다.
+// 3차시의 '틀린 글자 색칠'과 5차시의 히트맵에는 이 정보가 필요하다.
+//
+// 받침이 없을 때 종성 자리를 빈칸으로 채워 3칸 고정으로 만드는 방법도 있지만
+// 그렇게 하면 '가'->'갈' 오타가 삽입이 아니라 '빈칸->ㄹ 교체'로 잡혀서
+// 오타 유형 분류가 망가진다. 게다가 키 단위에서는 겹받침 때문에
+// 글자당 칸 수가 2~4개로 달라져 고정 길이가 성립하지도 않는다.
+// 그래서 길이를 고정하는 대신 꼬리표를 붙인다.
+// ─────────────────────────────────────────────────────────────
+
+// 자모마다 { jamo, charIndex, role } 을 붙여서 돌려준다.
+// charIndex 는 원문에서 몇 번째 글자인지(0부터), role 은 초성/중성/종성 구분이다.
+// 주의: charIndex 는 코드포인트 순번이라, 원문 글자를 꺼낼 때는
+//       text[i] 가 아니라 [...text][charIndex] 로 접근해야 안전하다.
+export function decomposeDetailed(text) {
+  const out = [];
+  let charIndex = 0;
+  for (const ch of text) {
+    if (!isHangulSyllable(ch)) {
+      out.push({ jamo: ch, charIndex, role: 'other' });
+    } else {
+      const [cho, jung, jong] = decomposeChar(ch);
+      out.push({ jamo: cho, charIndex, role: 'cho' });
+      out.push({ jamo: jung, charIndex, role: 'jung' });
+      // 받침이 없으면 decomposeChar 가 2칸만 주므로 jong 은 undefined 가 된다.
+      if (jong) out.push({ jamo: jong, charIndex, role: 'jong' });
+    }
+    charIndex++;
+  }
+  return out;
+}
+
+// 키 단위로 펴면서 꼬리표를 유지한다.
+// 겹받침/복합모음이 두 키로 쪼개지면 두 키가 같은 charIndex 와 role 을 물려받고,
+// fromComplex 로 '원래 한 자모였다'는 표시를 남긴다.
+export function decomposeToKeysDetailed(text) {
+  const out = [];
+  for (const { jamo, charIndex, role } of decomposeDetailed(text)) {
+    const keys = toKeys(jamo);
+    for (const key of keys) {
+      out.push({ key, charIndex, role, fromComplex: keys.length > 1 });
+    }
+  }
+  return out;
+}
