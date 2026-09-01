@@ -1,0 +1,9 @@
+{
+  "name": "hangul-typing-analyzer",
+  "version": "0.1.0",
+  "description": "한글 타자 오류 패턴 분석 및 맞춤 연습 문장 생성 서비스",
+  "type": "module",
+  "scripts": {
+    "test": "node src/hangul.test.js"
+  }
+}
