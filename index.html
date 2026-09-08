@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>오타지도</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ══ 화면 1 · 연습 ═══════════════════════════════════════ -->
+<section id="screen-practice" class="screen card">
+
+  <header class="card-head">
+    <h1>오타지도</h1>
+    <button class="btn" data-go="record">기록 보기</button>
+  </header>
+
+  <div class="card-body">
+
+    <div class="mode-row">
+      <span class="mode-label">모드</span>
+      <label class="mode"><input type="radio" name="mode" value="basic" checked> 기본 진단</label>
+      <label class="mode is-off"><input type="radio" name="mode" value="custom" disabled> 맞춤 훈련</label>
+      <small class="hint">맞춤 훈련은 진단 기록이 쌓이면 열립니다</small>
+    </div>
+
+    <!-- 제시 문장. 글자마다 span 하나씩 만든다 (3차시에 글자별로 색칠하기 위해) -->
+    <div class="field">
+      <span class="field-label">제시 문장</span>
+      <p id="target-text" class="target-text"></p>
+    </div>
+
+    <div class="field">
+      <span class="field-label">입력</span>
+      <textarea id="typing-input" class="typing-input" rows="2"
+                autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+    </div>
+
+    <p class="status-row">
+      경과 시간 <strong id="elapsed">00:00</strong>
+      &nbsp;&nbsp; 진행 <strong id="progress">0 / 0</strong> 자
+    </p>
+
+    <div class="button-row">
+      <button id="btn-done" class="btn btn-primary">완료</button>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ══ 화면 2 · 결과 ═══════════════════════════════════════ -->
+<section id="screen-result" class="screen card" hidden>
+
+  <header class="card-head">
+    <h1>분석 결과</h1>
+    <button class="btn" data-go="practice">다시 하기</button>
+  </header>
+
+  <div class="card-body">
+
+    <p class="summary-row">
+      정확도 <strong id="sum-accuracy">–</strong>
+      &nbsp;·&nbsp; 분당 <strong id="sum-cpm">–</strong>타
+      &nbsp;·&nbsp; 오타 <strong id="sum-errors">–</strong>곳
+    </p>
+
+    <div class="grid-2">
+
+      <div class="panel">
+        <h2>자판 히트맵</h2>
+        <div id="heatmap" class="panel-body heatmap-area is-empty">많이 틀린 키에 표시 · 5차시</div>
+      </div>
+
+      <div class="panel">
+        <h2>입력이 느린 자모</h2>
+        <ol id="slow-list" class="panel-body rank-list is-empty">
+          <li>자모별 평균 입력 시간 · 3차시</li>
+        </ol>
+      </div>
+
+      <div class="panel">
+        <h2>자모 오답 순위</h2>
+        <ol id="error-list" class="panel-body rank-list is-empty">
+          <li>편집 거리로 뽑은 오류 쌍 · 4차시</li>
+        </ol>
+      </div>
+
+      <div class="panel">
+        <h2>오타 유형</h2>
+        <dl id="type-list" class="panel-body type-list">
+          <div><dt>옆 키 오타</dt><dd>–</dd></div>
+          <div><dt>빠뜨림</dt><dd>–</dd></div>
+          <div><dt>자리바꿈</dt><dd>–</dd></div>
+          <div><dt>원거리</dt><dd>–</dd></div>
+        </dl>
+      </div>
+
+    </div>
+
+    <div class="panel panel-wide">
+      <h2>맞춤 연습 문장 <small id="weak-jamo">취약 자모</small></h2>
+      <div class="panel-body practice-suggest">
+        <p id="suggest-text" class="is-empty">배낭 알고리즘으로 만든 문장 · 5차시</p>
+        <button id="btn-practice-suggest" class="btn" disabled>이걸로 연습</button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ══ 화면 3 · 기록 ═══════════════════════════════════════ -->
+<section id="screen-record" class="screen card" hidden>
+
+  <header class="card-head">
+    <h1>내 기록</h1>
+    <button class="btn" data-go="practice">연습하기</button>
+  </header>
+
+  <div class="card-body">
+
+    <div class="panel panel-wide">
+      <h2>회차별 정확도</h2>
+      <div id="accuracy-chart" class="panel-body chart-area is-empty">
+        가로축 회차 · 세로축 정확도 · 8차시
+      </div>
+    </div>
+
+    <div class="grid-2">
+
+      <div class="panel">
+        <h2>누적 취약 자모</h2>
+        <ol id="cumulative-list" class="panel-body rank-list is-empty">
+          <li>여러 회차를 합친 오류 쌍 · 8차시</li>
+        </ol>
+      </div>
+
+      <div class="panel">
+        <h2>연습 기록</h2>
+        <div id="history-list" class="panel-body is-empty">
+          날짜별 연습 목록 · 7차시
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
