@@ -227,6 +227,7 @@ h1, h2 { margin: 0; font-weight: 600; }
   font-size: 11px;
   font-weight: 500;
   vertical-align: 1px;
+  white-space: nowrap;   /* 좁은 화면에서 배지가 두 줄로 갈라지지 않게 */
 }
 
 /* ── 꺾은선 그래프 ── */
@@ -287,4 +288,5 @@ h1, h2 { margin: 0; font-weight: 600; }
 }
 
 .history-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.history-list .date { white-space: nowrap; }
 .history-list .meta { color: var(--text-soft); font-size: 13px; font-variant-numeric: tabular-nums; }

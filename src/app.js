@@ -21,6 +21,9 @@ const screens = {
 };
 
 function show(name) {
+  // 연습 화면을 떠나면 시계를 멈춘다.
+  // 완료 버튼에만 걸어 두면 '기록 보기'로 나갔을 때 시계가 계속 돌아간다.
+  if (name !== 'practice') stopTimer();
   for (const [key, el] of Object.entries(screens)) el.hidden = (key !== name);
 }
 
@@ -139,7 +142,10 @@ function renderAccuracyChart(values) {
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
 
-  const MIN = 50, MAX = 100;              // 세로축은 50~100% 로 고정
+  // 세로축 범위. 아래끝을 50 으로 고정하면 정확도가 50 미만일 때
+  // 점이 그림 밖으로 나가 버린다. 가장 낮은 값보다 아래에서 시작하도록 내린다.
+  const MAX = 100;
+  const MIN = Math.min(50, Math.floor(Math.min(...values) / 10) * 10);
   // 값 -> y 좌표. 값이 클수록 위로 가야 하므로 위아래를 뒤집는다.
   const toY = (v) => PAD.top + innerH * (1 - (v - MIN) / (MAX - MIN));
   // 회차 번호 -> x 좌표. 점이 하나뿐이면 나눗셈이 0 이 되므로 가운데 둔다.
@@ -161,7 +167,7 @@ function renderAccuracyChart(values) {
   };
 
   // 가로 격자선과 세로축 눈금
-  for (const v of [50, 75, 100]) {
+  for (const v of [MIN, (MIN + MAX) / 2, MAX]) {
     add('line', { x1: PAD.left, y1: toY(v), x2: W - PAD.right, y2: toY(v), class: 'grid' });
     add('text', { x: PAD.left - 6, y: toY(v) + 4, class: 'tick tick-y' }, `${v}`);
   }
