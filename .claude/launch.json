@@ -4,7 +4,9 @@
     {
       "name": "otazido",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8000"],
+      "runtimeArgs": [
+        "dev-server.py"
+      ],
       "port": 8000
     }
   ]

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>오타지도</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 
@@ -122,26 +122,20 @@
   <div class="card-body">
 
     <div class="panel panel-wide">
-      <h2>회차별 정확도</h2>
-      <div id="accuracy-chart" class="panel-body chart-area is-empty">
-        가로축 회차 · 세로축 정확도 · 8차시
-      </div>
+      <h2>회차별 정확도 <span class="badge">예시 · 8차시에 실제 기록으로</span></h2>
+      <div id="accuracy-chart" class="panel-body chart-area"></div>
     </div>
 
     <div class="grid-2">
 
       <div class="panel">
-        <h2>누적 취약 자모</h2>
-        <ol id="cumulative-list" class="panel-body rank-list is-empty">
-          <li>여러 회차를 합친 오류 쌍 · 8차시</li>
-        </ol>
+        <h2>누적 취약 자모 <span class="badge">예시 · 8차시</span></h2>
+        <ol id="cumulative-list" class="panel-body pair-list"></ol>
       </div>
 
       <div class="panel">
-        <h2>연습 기록</h2>
-        <div id="history-list" class="panel-body is-empty">
-          날짜별 연습 목록 · 7차시
-        </div>
+        <h2>연습 기록 <span class="badge">예시 · 7차시</span></h2>
+        <ul id="history-list" class="panel-body history-list"></ul>
       </div>
 
     </div>
@@ -149,6 +143,6 @@
   </div>
 </section>
 
-<script type="module" src="src/app.js"></script>
+<script type="module" src="src/app.js?v=2"></script>
 </body>
 </html>

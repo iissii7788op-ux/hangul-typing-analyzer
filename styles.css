@@ -214,3 +214,77 @@ h1, h2 { margin: 0; font-weight: 600; }
   .grid-2 { grid-template-columns: 1fr; }
   .target-text { font-size: 19px; }
 }
+
+/* ══ 기록 화면 ════════════════════════════════════════════ */
+
+/* 아직 진짜 데이터가 아니라는 표시 */
+.badge {
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
+
+/* ── 꺾은선 그래프 ── */
+.line-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.line-chart .grid   { stroke: var(--line-soft); stroke-width: 1; }
+.line-chart .line   { fill: none; stroke: var(--accent); stroke-width: 2;
+                      stroke-linejoin: round; stroke-linecap: round; }
+.line-chart .dot    { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
+.line-chart .tick   { fill: var(--text-faint); font-size: 10px; }
+.line-chart .tick-y { text-anchor: end; }
+.line-chart .tick-x { text-anchor: middle; }
+
+/* ── 누적 취약 자모 ── */
+.pair-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.pair-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pair-list .pair { font-size: 16px; }
+.pair-list .pair em { color: var(--text-faint); font-style: normal; }
+.pair-list .count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+
+/* ── 연습 기록 ── */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.history-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.history-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.history-list .meta { color: var(--text-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
