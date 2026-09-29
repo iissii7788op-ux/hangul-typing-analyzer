@@ -1,6 +1,9 @@
 // 오타지도 · 화면 동작
-// 2차시 범위: 세 화면의 배치와 전환, 제시 문장 표시, 경과 시간과 진행 표시까지.
-// 오답 색칠과 키 입력 시각 기록은 3차시, 편집 거리 분석은 4차시에 붙인다.
+// 3차시까지: 세 화면의 배치와 전환, 제시 문장 표시, 경과 시간과 진행,
+//            글자별 맞음/틀림 색칠, 키 입력 시각 기록과 자모별 입력 시간.
+// 편집 거리로 오류 쌍을 뽑는 일은 4차시에 붙인다.
+
+import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
 const SENTENCES = [
@@ -37,6 +40,8 @@ const doneBtn    = document.getElementById('btn-done');
 let targetChars = [];   // 제시 문장을 글자 단위로 쪼갠 배열
 let startedAt   = null; // 첫 글자를 친 시각
 let timerId     = null;
+let keyTimes    = [];   // 키가 화면에 나타난 시각 (자모 하나당 하나)
+let typedKeys   = [];   // 지금까지 친 내용을 키 단위로 쪼갠 것
 
 // 제시 문장을 글자마다 span 하나씩으로 그린다.
 // 통째로 넣으면 3차시에 '틀린 글자만' 색칠할 수 없다.
@@ -50,6 +55,17 @@ function renderTarget(text) {
     span.textContent = ch;
     targetEl.appendChild(span);
   }
+}
+
+// 제시 문장의 글자마다 맞음/치는 중/틀림 색을 입힌다.
+// 판정은 typing.js 가 값으로만 하고, 여기서는 그 결과를 화면에 옮기기만 한다.
+function paintTarget() {
+  const { states, extra } = judge(targetChars.join(''), inputEl.value);
+  const spans = targetEl.children;
+  states.forEach((state, i) => { spans[i].className = `ch ${state}`; });
+
+  // 제시 문장보다 많이 친 글자는 칠할 자리가 없으므로 입력창 쪽에 표시한다.
+  inputEl.classList.toggle('is-over', extra > 0);
 }
 
 function updateProgress() {
@@ -79,8 +95,11 @@ function stopTimer() {
 function startPractice() {
   stopTimer();
   startedAt = null;
+  keyTimes = [];
+  typedKeys = [];
   renderTarget(SENTENCES[Math.floor(Math.random() * SENTENCES.length)]);
   inputEl.value = '';
+  inputEl.classList.remove('is-over');
   elapsedEl.textContent = '00:00';
   updateProgress();
   show('practice');
@@ -89,11 +108,34 @@ function startPractice() {
 
 inputEl.addEventListener('input', () => {
   startTimerIfNeeded();
+  // performance.now() 는 Date.now() 보다 촘촘하고(소수점 이하 ms),
+  // 도중에 시스템 시계가 바뀌어도 영향을 받지 않는다. 시간 차이를 재는 데 맞다.
+  typedKeys = recordKeyTimes(inputEl.value, keyTimes, performance.now());
+  paintTarget();
   updateProgress();
 });
 
+// 자모별 입력 시간을 콘솔에 찍는다.
+// 5차시에는 이 값을 결과 화면의 '입력이 느린 자모' 칸에 그대로 넣는다.
+function logKeyTimings() {
+  const durations = keyDurations(typedKeys, keyTimes);
+  if (durations.length === 0) { console.log('입력이 없어 잴 것이 없습니다.'); return; }
+
+  const ranked = averageByJamo(durations);
+
+  console.log(`─── 자모별 평균 입력 시간 · 느린 순 (키 ${typedKeys.length}개) ───`);
+  // 표와 글줄을 둘 다 찍는다. 표는 보기 좋고, 글줄은 어디서든 그대로 읽힌다.
+  ranked.forEach(({ key, avg, count }, i) => {
+    console.log(`${String(i + 1).padStart(2)}. ${key}  평균 ${Math.round(avg)}ms  (${count}회)`);
+  });
+  console.table(ranked.map(({ key, avg, count }) => ({
+    자모: key, '평균(ms)': Math.round(avg), 횟수: count,
+  })));
+}
+
 doneBtn.addEventListener('click', () => {
   stopTimer();
+  logKeyTimings();
   show('result');   // 결과 계산은 4~5차시에 붙인다
 });
 

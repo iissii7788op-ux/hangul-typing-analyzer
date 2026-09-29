@@ -15,6 +15,14 @@ export const JUNG = ['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ'
 // 0번은 '받침 없음'이라 빈 문자열이다.
 export const JONG = ['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
 
+// 글자 하나가 낱개 자모(ㄱ~ㅣ)인지 확인한다.
+// 유니코드에서 호환 자모는 ㄱ(0x3131) 부터 ㅣ(0x3163) 까지 붙어 있다.
+// 공백이나 문장부호를 자모 통계에서 걸러낼 때 쓴다.
+export function isJamo(ch) {
+  const code = ch.codePointAt(0);
+  return code >= 0x3131 && code <= 0x3163;
+}
+
 // 글자 하나가 완성형 한글인지 확인한다.
 export function isHangulSyllable(ch) {
   const code = ch.codePointAt(0);

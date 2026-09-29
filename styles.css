@@ -9,6 +9,9 @@
   --text-faint: #9aa1ab;
   --accent: #2563eb;
   --accent-soft: #eff4ff;
+  --correct: #9aa1ab;          /* 맞게 친 글자는 지나간 것이므로 흐리게 */
+  --wrong: #dc2626;
+  --wrong-soft: #fee2e2;
   --radius: 10px;
 }
 
@@ -125,8 +128,33 @@ h1, h2 { margin: 0; font-weight: 600; }
   word-break: keep-all;
 }
 
-/* 제시 문장의 글자 하나하나. 3차시에 여기에 맞음/틀림 색을 입힌다. */
-.target-text .ch { padding: 0 1px; border-radius: 3px; }
+/* 제시 문장의 글자 하나하나 */
+.target-text .ch {
+  padding: 0 1px;
+  border-radius: 3px;
+  transition: color .1s, background-color .1s;
+}
+
+/* 아직 치지 않은 글자(pending)는 기본색 그대로 둔다. */
+
+/* 맞게 친 글자. 이미 지나간 곳이라 흐리게 해서 남은 글자가 눈에 들어오게 한다. */
+.target-text .ch.correct { color: var(--correct); }
+
+/* 지금 만드는 중인 글자. 한글은 ㅇ -> 아 -> 안 처럼 중간 상태를 지나가므로
+   아직 틀렸다고 하면 안 된다. 여기까지 왔다는 표시만 한다. */
+.target-text .ch.typing {
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* 제시 글자로 가는 길에서 벗어난 글자 */
+.target-text .ch.wrong {
+  color: var(--wrong);
+  background: var(--wrong-soft);
+}
+
+/* 제시 문장보다 많이 쳤을 때 (칠할 자리가 없어 입력창에 표시) */
+.typing-input.is-over { background: var(--wrong-soft); border-radius: 6px; }
 
 .typing-input {
   display: block;
