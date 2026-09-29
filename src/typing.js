@@ -56,6 +56,11 @@ export function judge(target, typed) {
 // 입력이 바뀔 때마다 키 배열로 쪼개서, 늘어난 만큼 지금 시각을 붙인다.
 //
 // times 는 keys 와 같은 길이가 되며, times[i] 는 i 번째 키가 나타난 시각이다.
+//
+// now 로는 벽시계 시각이 아니라 '연습이 실제로 흐른 시간' 을 넘긴다.
+// 연습 중에 기록 화면을 보고 오면 그동안은 연습 시간이 아닌데, 벽시계를 쓰면
+// 자리 비운 30초가 다음 자모의 입력 시간으로 잡힌다. 경과 시간을 쓰면 멈춘
+// 구간이 애초에 더해지지 않으므로 따로 보정할 일이 없다.
 export function recordKeyTimes(text, times, now) {
   const keys = decomposeToKeys(text);
 
