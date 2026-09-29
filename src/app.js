@@ -132,11 +132,8 @@ inputEl.addEventListener('input', () => {
 
 // 자모별 입력 시간을 콘솔에 찍는다.
 // 5차시에는 이 값을 결과 화면의 '입력이 느린 자모' 칸에 그대로 넣는다.
-function logKeyTimings() {
-  const durations = keyDurations(typedKeys, keyTimes);
-  if (durations.length === 0) { console.log('입력이 없어 잴 것이 없습니다.'); return; }
-
-  const ranked = averageByJamo(durations);
+function logKeyTimings(ranked) {
+  if (ranked.length === 0) { console.log('입력이 없어 잴 것이 없습니다.'); return; }
 
   console.log(`─── 자모별 평균 입력 시간 · 느린 순 (키 ${typedKeys.length}개) ───`);
   // 표와 글줄을 둘 다 찍는다. 표는 보기 좋고, 글줄은 어디서든 그대로 읽힌다.
@@ -148,10 +145,37 @@ function logKeyTimings() {
   })));
 }
 
+// 결과 화면의 '입력이 느린 자모' 칸을 채운다.
+// 틀리지는 않았지만 유독 오래 걸리는 자모를 찾는 것이 목적이라,
+// 오타 분석(4차시)과는 별개로 지금 값만으로도 채울 수 있다.
+function renderSlowJamo(ranked) {
+  const list = document.getElementById('slow-list');
+  list.textContent = '';
+
+  if (ranked.length === 0) {
+    list.classList.add('is-empty');
+    const li = document.createElement('li');
+    li.textContent = '입력이 없어 잴 것이 없습니다';
+    list.appendChild(li);
+    return;
+  }
+
+  list.classList.remove('is-empty');
+  ranked.slice(0, 5).forEach(({ key, avg, count }, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="pair">${i + 1}. ${key}</span>`
+                 + `<span class="count">평균 ${Math.round(avg)}ms`
+                 + (count > 1 ? ` · ${count}회` : '') + `</span>`;
+    list.appendChild(li);
+  });
+}
+
 doneBtn.addEventListener('click', () => {
   stopTimer();
-  logKeyTimings();
-  show('result');   // 결과 계산은 4~5차시에 붙인다
+  const ranked = averageByJamo(keyDurations(typedKeys, keyTimes));
+  logKeyTimings(ranked);
+  renderSlowJamo(ranked);
+  show('result');   // 나머지 칸(히트맵·오답 순위·오타 유형)은 4~5차시
 });
 
 // 치던 연습을 그대로 이어서 한다. 문장도 입력도 그대로 두고 화면만 되돌린다.
