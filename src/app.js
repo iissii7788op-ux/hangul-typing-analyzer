@@ -4,6 +4,8 @@
 // 편집 거리로 오류 쌍을 뽑는 일은 4차시에 붙인다.
 
 import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js';
+import { decomposeToKeys } from './hangul.js';
+import { diffKeys, countErrorPairs, countByType, accuracy, TYPE_LABEL } from './diff.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
 const SENTENCES = [
@@ -170,13 +172,84 @@ function renderSlowJamo(ranked) {
   });
 }
 
+// ── 결과 화면 · 오타 분석 (4차시) ────────────────────────
+
+// 어느 자모를 어느 자모로 잘못 쳤는지, 그리고 그게 어떤 실수인지 보여 준다.
+function renderErrorPairs(pairs) {
+  const list = document.getElementById('error-list');
+  list.textContent = '';
+
+  if (pairs.length === 0) {
+    list.classList.add('is-empty');
+    const li = document.createElement('li');
+    li.textContent = '교체 오타가 없습니다';
+    list.appendChild(li);
+    return;
+  }
+
+  list.classList.remove('is-empty');
+  pairs.slice(0, 5).forEach(({ from, to, count, category }, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="pair">${i + 1}. ${from} <em>→</em> ${to}</span>`
+                 + `<span class="count">${count}회 · ${TYPE_LABEL[category]}</span>`;
+    list.appendChild(li);
+  });
+}
+
+// 오타 유형별 비율. 한 번도 안 나온 유형도 0% 로 남겨 둬야 전체 그림이 보인다.
+function renderTypes(types) {
+  const list = document.getElementById('type-list');
+  list.textContent = '';
+  for (const { label, count, percent } of types) {
+    const row = document.createElement('div');
+    row.innerHTML = `<dt>${label}</dt>`
+                  + `<dd>${count === 0 ? '–' : `${percent}% · ${count}회`}</dd>`;
+    list.appendChild(row);
+  }
+}
+
+function renderSummary({ acc, cpm, errorCount }) {
+  document.getElementById('sum-accuracy').textContent = `${acc}%`;
+  document.getElementById('sum-cpm').textContent      = cpm;
+  document.getElementById('sum-errors').textContent   = errorCount;
+}
+
 doneBtn.addEventListener('click', () => {
   stopTimer();
+
+  // 자모별 입력 시간 (3차시)
   const ranked = averageByJamo(keyDurations(typedKeys, keyTimes));
   logKeyTimings(ranked);
   renderSlowJamo(ranked);
-  show('result');   // 나머지 칸(히트맵·오답 순위·오타 유형)은 4~5차시
+
+  // 편집 거리로 오타를 뽑는다 (4차시)
+  // 비교는 글자가 아니라 키 단위로 한다. '값'을 '갑'으로 쳤을 때
+  // 'ㅄ을 ㅂ으로 교체'가 아니라 'ㅅ을 빠뜨림'으로 잡혀야 하기 때문이다.
+  const targetKeys = decomposeToKeys(targetChars.join(''));
+  const inputKeys  = decomposeToKeys(inputEl.value);
+  const { distance, ops } = diffKeys(targetKeys, inputKeys);
+
+  renderErrorPairs(countErrorPairs(ops));
+  renderTypes(countByType(ops));
+
+  const minutes = currentElapsed() / 60000;
+  renderSummary({
+    acc: accuracy(targetKeys.length, distance),
+    cpm: minutes > 0 ? Math.round(inputKeys.length / minutes) : 0,
+    errorCount: ops.length,
+  });
+
+  logErrors(ops);
+  show('result');   // 자판 히트맵과 맞춤 연습 문장은 5차시
 });
+
+// 계획서 4차시 목표: 오류 쌍과 유형이 출력되는 것까지 확인
+function logErrors(ops) {
+  console.log(`─── 오타 ${ops.length}곳 ───`);
+  for (const op of ops) {
+    console.log(`  ${op.from ?? '-'} → ${op.to ?? '-'}   ${TYPE_LABEL[op.category]}`);
+  }
+}
 
 // 치던 연습을 그대로 이어서 한다. 문장도 입력도 그대로 두고 화면만 되돌린다.
 function resumePractice() {
