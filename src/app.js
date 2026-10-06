@@ -5,7 +5,8 @@
 
 import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js';
 import { decomposeToKeys } from './hangul.js';
-import { diffKeys, countErrorPairs, countByType, accuracy, TYPE_LABEL } from './diff.js';
+import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType,
+         accuracy, TYPE_LABEL } from './diff.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
 const SENTENCES = [
@@ -39,12 +40,37 @@ const elapsedEl  = document.getElementById('elapsed');
 const progressEl = document.getElementById('progress');
 const doneBtn    = document.getElementById('btn-done');
 
-let targetChars = [];   // 제시 문장을 글자 단위로 쪼갠 배열
+const sentenceNoEl = document.getElementById('sentence-no');
+
+// 한 번 연습할 때 치는 문장 수. 한 문장만 치면 자모가 몇 개 안 나와
+// 취약 자모를 가릴 만큼 표본이 모이지 않는다.
+const SENTENCES_PER_ROUND = 5;
+
+let targetChars = [];   // 지금 문장을 글자 단위로 쪼갠 배열
 let startedAt   = null; // 지금 재고 있는 구간의 시작 시각 (멈춰 있으면 null)
-let elapsedMs   = 0;    // 앞서 재 둔 시간의 합
+let elapsedMs   = 0;    // 앞서 재 둔 시간의 합 (라운드 전체)
 let timerId     = null;
-let keyTimes    = [];   // 키가 화면에 나타난 시각 (자모 하나당 하나)
-let typedKeys   = [];   // 지금까지 친 내용을 키 단위로 쪼갠 것
+let keyTimes    = [];   // 키가 화면에 나타난 시각 (문장마다 새로 시작)
+let typedKeys   = [];   // 지금 문장에서 친 내용을 키 단위로 쪼갠 것
+let prevKeys    = [];   // 직전 입력. 백스페이스로 줄어든 것을 알아채려고 둔다
+
+// 이번 라운드에서 모은 것들. 문장을 넘길 때마다 쌓인다.
+let round = null;
+
+function newRound() {
+  // 문장 순서를 섞어서 매번 같은 순서로 나오지 않게 한다.
+  const shuffled = [...SENTENCES].sort(() => Math.random() - 0.5);
+  round = {
+    sentences: shuffled.slice(0, SENTENCES_PER_ROUND),
+    index: 0,
+    ops: [],              // 오타 연산 (고쳐서 지운 것까지 포함)
+    durations: [],        // 키마다 걸린 시간
+    targetKeyCount: 0,
+    typedKeyCount: 0,
+  };
+}
+
+const roundFinished = () => round !== null && round.index >= round.sentences.length;
 
 // 제시 문장을 글자마다 span 하나씩으로 그린다.
 // 통째로 넣으면 3차시에 '틀린 글자만' 색칠할 수 없다.
@@ -73,6 +99,7 @@ function paintTarget() {
 
 function updateProgress() {
   progressEl.textContent = `${[...inputEl.value].length} / ${targetChars.length}`;
+  sentenceNoEl.textContent = `${round.index + 1} / ${round.sentences.length}`;
 }
 
 function formatTime(ms) {
@@ -106,20 +133,51 @@ function stopTimer() {
   timerId = null;
 }
 
+// 지금 차례의 문장을 화면에 올린다. 시계는 건드리지 않는다.
+// 문장이 바뀌어도 연습 시간은 계속 흘러야 하기 때문이다.
+function loadSentence() {
+  keyTimes = [];        // 자모 입력 시간은 문장마다 새로 잰다
+  typedKeys = [];
+  prevKeys = [];
+  renderTarget(round.sentences[round.index]);
+  inputEl.value = '';
+  inputEl.classList.remove('is-over');
+  updateProgress();
+  paintTarget();
+  inputEl.focus();
+}
+
+// 지금 문장에서 나온 결과를 라운드에 쌓는다.
+function collectSentence() {
+  const targetKeys = decomposeToKeys(targetChars.join(''));
+  const inputKeys  = decomposeToKeys(inputEl.value);
+
+  const { ops } = diffKeys(targetKeys, inputKeys);
+  round.ops.push(...ops);
+  round.durations.push(...keyDurations(typedKeys, keyTimes));
+  round.targetKeyCount += targetKeys.length;
+  round.typedKeyCount  += inputKeys.length;
+}
+
 // 새 연습을 시작한다. 문장을 새로 뽑고 입력과 시계를 초기화한다.
 function startPractice() {
   stopTimer();
   startedAt = null;
   elapsedMs = 0;
-  keyTimes = [];
-  typedKeys = [];
-  renderTarget(SENTENCES[Math.floor(Math.random() * SENTENCES.length)]);
-  inputEl.value = '';
-  inputEl.classList.remove('is-over');
+  newRound();
+  loadSentence();
   elapsedEl.textContent = '00:00';
-  updateProgress();
   show('practice');
-  inputEl.focus();
+}
+
+// 엔터를 눌렀을 때. 지금 문장을 접고 다음 문장으로 넘어간다.
+// 마지막 문장이었으면 결과 화면으로 간다.
+function nextSentence() {
+  collectSentence();
+  round.index += 1;
+
+  if (roundFinished()) showRoundResult();
+  else loadSentence();
 }
 
 inputEl.addEventListener('input', () => {
@@ -128,8 +186,24 @@ inputEl.addEventListener('input', () => {
   // 기록 화면을 보고 오면 그동안 시계가 멈춰 있으므로, 자리 비운 시간이
   // 다음 자모의 입력 시간에 섞이지 않는다.
   typedKeys = recordKeyTimes(inputEl.value, keyTimes, currentElapsed());
+
+  // 오타를 내면 보통 지우고 다시 친다. 그러면 최종 입력에 흔적이 남지 않아
+  // '오타 0곳' 이 되어 버린다. 줄어드는 순간에 건져 두어야 한다.
+  if (typedKeys.length < prevKeys.length) {
+    round.ops.push(...errorsInRemovedPart(
+      decomposeToKeys(targetChars.join('')), prevKeys, typedKeys));
+  }
+  prevKeys = typedKeys;
+
   paintTarget();
   updateProgress();
+});
+
+// 엔터로 다음 문장. textarea 라서 그냥 두면 줄바꿈이 들어간다.
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;   // 조합 중 엔터는 글자 확정용이다
+  e.preventDefault();
+  nextSentence();
 });
 
 // 자모별 입력 시간을 콘솔에 찍는다.
@@ -137,7 +211,7 @@ inputEl.addEventListener('input', () => {
 function logKeyTimings(ranked) {
   if (ranked.length === 0) { console.log('입력이 없어 잴 것이 없습니다.'); return; }
 
-  console.log(`─── 자모별 평균 입력 시간 · 느린 순 (키 ${typedKeys.length}개) ───`);
+  console.log(`─── 자모별 평균 입력 시간 · 느린 순 (키 ${round.typedKeyCount}개) ───`);
   // 표와 글줄을 둘 다 찍는다. 표는 보기 좋고, 글줄은 어디서든 그대로 읽힌다.
   ranked.forEach(({ key, avg, count }, i) => {
     console.log(`${String(i + 1).padStart(2)}. ${key}  평균 ${Math.round(avg)}ms  (${count}회)`);
@@ -208,40 +282,46 @@ function renderTypes(types) {
   }
 }
 
-function renderSummary({ acc, cpm, errorCount }) {
-  document.getElementById('sum-accuracy').textContent = `${acc}%`;
-  document.getElementById('sum-cpm').textContent      = cpm;
-  document.getElementById('sum-errors').textContent   = errorCount;
+function renderSummary({ acc, cpm, errorCount, hasData }) {
+  document.getElementById('sum-accuracy').textContent = hasData ? `${acc}%` : '–';
+  document.getElementById('sum-cpm').textContent      = hasData ? cpm : '–';
+  document.getElementById('sum-errors').textContent   = hasData ? errorCount : '–';
 }
 
-doneBtn.addEventListener('click', () => {
+// 라운드 전체를 모아 결과 화면에 올린다.
+//
+// 치다 만 문장은 담지 않는다. 엔터로 접은 문장만 센다.
+// 반쯤 치다 만 문장을 넣으면 아직 치지 않은 뒷부분이 전부 '빠뜨림' 으로
+// 쌓여서 통계가 망가진다. (안 친 문장 하나로 빠뜨림 39회가 잡힌 적이 있다.)
+function showRoundResult() {
+  round.index = round.sentences.length;
   stopTimer();
 
   // 자모별 입력 시간 (3차시)
-  const ranked = averageByJamo(keyDurations(typedKeys, keyTimes));
+  const ranked = averageByJamo(round.durations);
   logKeyTimings(ranked);
   renderSlowJamo(ranked);
 
-  // 편집 거리로 오타를 뽑는다 (4차시)
-  // 비교는 글자가 아니라 키 단위로 한다. '값'을 '갑'으로 쳤을 때
+  // 오류 쌍과 오타 유형 (4차시)
+  // 비교는 글자가 아니라 키 단위로 했다. '값'을 '갑'으로 쳤을 때
   // 'ㅄ을 ㅂ으로 교체'가 아니라 'ㅅ을 빠뜨림'으로 잡혀야 하기 때문이다.
-  const targetKeys = decomposeToKeys(targetChars.join(''));
-  const inputKeys  = decomposeToKeys(inputEl.value);
-  const { distance, ops } = diffKeys(targetKeys, inputKeys);
-
+  const ops = round.ops;
   renderErrorPairs(countErrorPairs(ops));
   renderTypes(countByType(ops));
 
   const minutes = currentElapsed() / 60000;
   renderSummary({
-    acc: accuracy(targetKeys.length, distance),
-    cpm: minutes > 0 ? Math.round(inputKeys.length / minutes) : 0,
+    hasData: round.targetKeyCount > 0,
+    acc: accuracy(round.targetKeyCount, ops.length),
+    cpm: minutes > 0 ? Math.round(round.typedKeyCount / minutes) : 0,
     errorCount: ops.length,
   });
 
   logErrors(ops);
   show('result');   // 자판 히트맵과 맞춤 연습 문장은 5차시
-});
+}
+
+doneBtn.addEventListener('click', showRoundResult);
 
 // 계획서 4차시 목표: 오류 쌍과 유형이 출력되는 것까지 확인
 function logErrors(ops) {
@@ -260,9 +340,10 @@ function resumePractice() {
   inputEl.focus();
 }
 
-// 기록 화면에서 연습으로 돌아올 때. 치던 것이 있으면 이어서, 없으면 새 문장으로.
+// 기록 화면에서 연습으로 돌아올 때.
+// 라운드가 아직 안 끝났으면 치던 자리에서 이어서, 끝났으면 새 라운드로.
 function goPractice() {
-  if (inputEl.value === '') startPractice();
+  if (round === null || roundFinished()) startPractice();
   else resumePractice();
 }
 

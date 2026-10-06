@@ -85,7 +85,15 @@ h1, h2 { margin: 0; font-weight: 600; }
 
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
-.button-row { display: flex; justify-content: flex-end; }
+/* 왼쪽에 안내, 오른쪽에 버튼 */
+.button-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.enter-hint { color: var(--text-faint); font-size: 13px; }
 
 /* ══ 화면 1 · 연습 ════════════════════════════════════════ */
 .mode-row {

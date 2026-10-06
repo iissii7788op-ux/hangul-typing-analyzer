@@ -134,6 +134,25 @@ export function diffKeys(target, typed) {
   return { distance: d[target.length][typed.length], ops };
 }
 
+// ── 고쳐서 흔적이 지워진 오타 ────────────────────────────
+//
+// 오타를 내면 보통 백스페이스로 지우고 다시 친다. 그러면 최종 입력에는
+// 흔적이 남지 않아 '오타 0곳' 이 되어 버린다. 하지만 그 자모에서 실수한 것은
+// 사실이고, 타자 연습에서는 그게 바로 알아야 할 정보다.
+//
+// 그래서 입력이 줄어드는 순간, 지워지기 직전 상태를 제시 문장과 맞춰 보고
+// 지워지는 구간에 있던 오타만 건져 낸다.
+//
+// 빠뜨림(DELETE)은 제외한다. 그것은 '입력에 없는 것' 이라 지워진 것이 아니라
+// 아직 치지 않은 뒷부분이기 때문이다. 그것까지 세면 백스페이스를 누를 때마다
+// 남은 문장 전체가 오타로 쌓인다.
+export function errorsInRemovedPart(targetKeys, prevKeys, nextKeys) {
+  if (prevKeys.length <= nextKeys.length) return [];
+
+  const { ops } = diffKeys(targetKeys, prevKeys);
+  return ops.filter(op => op.type !== DELETE && op.typedIndex >= nextKeys.length);
+}
+
 // ── 집계 ─────────────────────────────────────────────────
 
 // 어느 자모를 어느 자모로 잘못 쳤는지 세어 많은 순으로 돌려준다.

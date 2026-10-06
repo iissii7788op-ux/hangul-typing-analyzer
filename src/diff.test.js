@@ -2,7 +2,7 @@
 //
 // 계획서에 적은 대로, 정답을 아는 짧은 예시부터 확인하고 긴 문장으로 넘어간다.
 import { decomposeToKeys } from './hangul.js';
-import { diffKeys, countErrorPairs, countByType, accuracy,
+import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType, accuracy,
          SUBSTITUTE, DELETE, INSERT, TRANSPOSE,
          NEIGHBOR, DISTANT, MISSING, EXTRA, SWAP } from './diff.js';
 
@@ -82,6 +82,35 @@ check('유형별 비율 합', countByType(mixed.ops).reduce((s, t) => s + t.perc
 check('정확도 — 10개 중 2개 틀림', accuracy(10, 2), 80);
 check('정확도 — 다 맞음',          accuracy(10, 0), 100);
 check('정확도 — 입력 없음',        accuracy(0, 0), 0);
+
+// ── 고쳐서 흔적이 지워진 오타 ────────────────────────────
+console.log('\n[지우고 고친 오타]');
+
+const 안녕 = decomposeToKeys('안녕');          // ㅇㅏㄴㄴㅕㅇ
+
+// ㅛ 를 잘못 치고 백스페이스로 지운 순간
+check('지운 자리에 있던 오타를 건진다',
+      errorsInRemovedPart(안녕, decomposeToKeys('안뇨'), decomposeToKeys('안ㄴ'))
+        .map(o => `${o.from}>${o.to}:${o.category}`),
+      [`ㅕ>ㅛ:${NEIGHBOR}`]);
+
+// 맞게 친 것을 지운 경우에는 오타가 아니다
+check('맞게 친 것을 지우면 오타 없음',
+      errorsInRemovedPart(안녕, decomposeToKeys('안녀'), decomposeToKeys('안ㄴ')), []);
+
+// 아직 치지 않은 뒷부분이 오타로 쌓이면 안 된다
+check('안 친 뒷부분은 오타가 아니다',
+      errorsInRemovedPart(안녕, decomposeToKeys('안'), decomposeToKeys('아')), []);
+
+// 늘어난 경우에는 볼 것이 없다
+check('입력이 늘면 빈 목록',
+      errorsInRemovedPart(안녕, decomposeToKeys('안'), decomposeToKeys('안녕')), []);
+
+// 더 친 자모를 지운 경우도 오타다
+check('덧친 자모를 지우면 덧침으로 잡힌다',
+      errorsInRemovedPart(decomposeToKeys('가'), decomposeToKeys('강'), decomposeToKeys('가'))
+        .map(o => o.category),
+      [EXTRA]);
 
 console.log(`\n${pass}/${total} 통과`);
 process.exit(pass === total ? 0 : 1);
