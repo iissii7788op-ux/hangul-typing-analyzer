@@ -32,6 +32,20 @@ for (const [shifted, base] of Object.entries(SHIFT_PAIR)) {
   POSITION.set(shifted, POSITION.get(base));
 }
 
+// 자판을 줄 단위로 돌려준다. 히트맵 그림을 그릴 때 쓴다.
+// Shift 로 치는 자모는 같은 자리에 겹쳐 있으므로 기본 자모 쪽에 함께 적어 준다.
+const SHIFT_OF = Object.fromEntries(
+  Object.entries(SHIFT_PAIR).map(([shifted, base]) => [base, shifted]));
+
+export function keyboardLayout() {
+  return ROWS.map((row, rowIndex) => row.map((jamo, colIndex) => ({
+    jamo,
+    shifted: SHIFT_OF[jamo] ?? null,
+    row: rowIndex,
+    col: colIndex + ROW_OFFSET[rowIndex],
+  })));
+}
+
 // 자판 위 위치를 돌려준다. 자판에 없는 글자(공백 등)는 null.
 export function keyPosition(jamo) {
   return POSITION.get(jamo) ?? null;

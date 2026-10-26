@@ -169,6 +169,21 @@ export function countErrorPairs(ops) {
   return [...tally.values()].sort((a, b) => b.count - a.count);
 }
 
+// 키마다 몇 번 틀렸는지 센다. 자판 히트맵에서 키를 얼마나 진하게 칠할지 정하는 값이다.
+//
+// 기준은 '쳤어야 할 자모'(from) 다. 'ㅕ 를 칠 자리에서 자꾸 실수한다' 가
+// 연습에 쓸모 있는 정보이기 때문이다.
+// 덧침은 쳐야 할 자모가 없으므로 실제로 누른 키(to)로 센다.
+export function countByKey(ops) {
+  const tally = new Map();
+  for (const op of ops) {
+    const key = op.from ?? op.to;
+    if (!key) continue;
+    tally.set(key, (tally.get(key) ?? 0) + 1);
+  }
+  return tally;
+}
+
 // 오타 유형별 개수와 비율.
 export function countByType(ops) {
   const counts = { [NEIGHBOR]: 0, [DISTANT]: 0, [MISSING]: 0, [EXTRA]: 0, [SWAP]: 0 };

@@ -328,3 +328,33 @@ h1, h2 { margin: 0; font-weight: 600; }
 .history-list li:last-child { border-bottom: 0; padding-bottom: 0; }
 .history-list .date { white-space: nowrap; }
 .history-list .meta { color: var(--text-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* ══ 자판 히트맵 ══════════════════════════════════════════ */
+.keyboard-map {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* 한 번도 안 틀린 키 */
+.keyboard-map .key {
+  fill: var(--line-soft);
+  stroke: var(--line);
+  stroke-width: .5;
+}
+
+/* 틀린 적 있는 키. 진하기는 가장 많이 틀린 키에 견줘 정한다(fill-opacity). */
+.keyboard-map .key-hot {
+  fill: var(--wrong);
+  stroke: none;
+}
+
+.keyboard-map .key-label {
+  fill: var(--text-soft);
+  font-size: 13px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* 진하게 칠해진 키 위에서는 글자를 흰색으로 */
+.keyboard-map .key-label-hot { fill: #fff; font-weight: 600; }

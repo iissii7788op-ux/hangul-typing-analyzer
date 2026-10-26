@@ -6,7 +6,10 @@
 import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js';
 import { decomposeToKeys } from './hangul.js';
 import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType,
-         accuracy, TYPE_LABEL } from './diff.js';
+         countByKey, accuracy, TYPE_LABEL } from './diff.js';
+import { keyboardLayout } from './keyboard.js';
+import { pickWeakJamo, buildPracticeSentence } from './practice.js';
+import { WORDS } from './words.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
 const SENTENCES = [
@@ -57,11 +60,13 @@ let prevKeys    = [];   // 직전 입력. 백스페이스로 줄어든 것을 �
 // 이번 라운드에서 모은 것들. 문장을 넘길 때마다 쌓인다.
 let round = null;
 
-function newRound() {
+// sentences 를 주면 그 문장들로, 안 주면 기본 문장을 섞어서 라운드를 연다.
+// 맞춤 연습 문장으로 바로 연습할 때 지정해서 쓴다.
+function newRound(sentences = null) {
   // 문장 순서를 섞어서 매번 같은 순서로 나오지 않게 한다.
   const shuffled = [...SENTENCES].sort(() => Math.random() - 0.5);
   round = {
-    sentences: shuffled.slice(0, SENTENCES_PER_ROUND),
+    sentences: sentences ?? shuffled.slice(0, SENTENCES_PER_ROUND),
     index: 0,
     ops: [],              // 오타 연산 (고쳐서 지운 것까지 포함)
     durations: [],        // 키마다 걸린 시간
@@ -160,11 +165,11 @@ function collectSentence() {
 }
 
 // 새 연습을 시작한다. 문장을 새로 뽑고 입력과 시계를 초기화한다.
-function startPractice() {
+function startPractice(sentences = null) {
   stopTimer();
   startedAt = null;
   elapsedMs = 0;
-  newRound();
+  newRound(sentences);
   loadSentence();
   elapsedEl.textContent = '00:00';
   show('practice');
@@ -270,6 +275,64 @@ function renderErrorPairs(pairs) {
   });
 }
 
+// 자판 히트맵. 많이 틀린 키일수록 진하게 칠한다.
+//
+// 4차시에 만든 자판 좌표를 그대로 그림으로 옮긴다. 자판 모양 그대로 보여 줘야
+// '오른손 가운데 줄에서 실수가 몰린다' 같은 것이 한눈에 들어온다.
+function renderHeatmap(tally) {
+  const box = document.getElementById('heatmap');
+  box.textContent = '';
+
+  const rows = keyboardLayout();
+  const worst = Math.max(1, ...tally.values());   // 가장 많이 틀린 키를 기준으로 삼는다
+
+  const KEY = 30, GAP = 3, PAD = 4;
+  const width  = PAD * 2 + 10 * (KEY + GAP);
+  const height = PAD * 2 + 3 * (KEY + GAP);
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('class', 'keyboard-map');
+
+  for (const row of rows) {
+    for (const { jamo, shifted, row: r, col } of row) {
+      const count = tally.get(jamo) ?? 0;
+      const withShift = shifted ? (tally.get(shifted) ?? 0) : 0;
+      const total = count + withShift;   // Shift 로 치는 자모도 같은 키다
+
+      const g = document.createElementNS(ns, 'g');
+      const x = PAD + col * (KEY + GAP);
+      const y = PAD + r * (KEY + GAP);
+
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', x); rect.setAttribute('y', y);
+      rect.setAttribute('width', KEY); rect.setAttribute('height', KEY);
+      rect.setAttribute('rx', 5);
+      rect.setAttribute('class', total > 0 ? 'key key-hot' : 'key');
+      // 가장 많이 틀린 키를 1 로 두고 비율만큼 진하게. 0.15 는 바닥값이다.
+      if (total > 0) rect.setAttribute('fill-opacity', (0.15 + 0.85 * (total / worst)).toFixed(2));
+      g.appendChild(rect);
+
+      const text = document.createElementNS(ns, 'text');
+      text.setAttribute('x', x + KEY / 2); text.setAttribute('y', y + KEY / 2 + 5);
+      text.setAttribute('class', total > 0 ? 'key-label key-label-hot' : 'key-label');
+      text.textContent = jamo;
+      g.appendChild(text);
+
+      if (total > 0) {
+        const title = document.createElementNS(ns, 'title');
+        title.textContent = `${jamo} ${total}회`;
+        g.appendChild(title);
+      }
+      svg.appendChild(g);
+    }
+  }
+
+  box.classList.toggle('is-empty', worst === 1 && tally.size === 0);
+  box.appendChild(svg);
+}
+
 // 오타 유형별 비율. 한 번도 안 나온 유형도 0% 로 남겨 둬야 전체 그림이 보인다.
 function renderTypes(types) {
   const list = document.getElementById('type-list');
@@ -281,6 +344,33 @@ function renderTypes(types) {
     list.appendChild(row);
   }
 }
+
+// 취약 자모가 몰린 맞춤 연습 문장. 배낭 알고리즘이 고른 단어들이다.
+let suggestedSentence = '';
+
+function renderSuggestion(weakJamo, sentence) {
+  const label = document.getElementById('weak-jamo');
+  const textEl = document.getElementById('suggest-text');
+  const btn = document.getElementById('btn-practice-suggest');
+
+  suggestedSentence = sentence;
+  label.textContent = weakJamo.length ? `취약 자모 ${weakJamo.join(' ')}` : '취약 자모';
+
+  if (!sentence) {
+    textEl.classList.add('is-empty');
+    textEl.textContent = '오타가 없어 만들 문장이 없습니다';
+    btn.disabled = true;
+    return;
+  }
+  textEl.classList.remove('is-empty');
+  textEl.textContent = sentence;
+  btn.disabled = false;
+}
+
+// 맞춤 문장 하나만으로 짧게 한 라운드를 돈다.
+document.getElementById('btn-practice-suggest').addEventListener('click', () => {
+  if (suggestedSentence) startPractice([suggestedSentence]);
+});
 
 function renderSummary({ acc, cpm, errorCount, hasData }) {
   document.getElementById('sum-accuracy').textContent = hasData ? `${acc}%` : '–';
@@ -308,6 +398,12 @@ function showRoundResult() {
   const ops = round.ops;
   renderErrorPairs(countErrorPairs(ops));
   renderTypes(countByType(ops));
+  const errorTally = countByKey(ops);
+  renderHeatmap(errorTally);
+
+  // 취약 자모를 정하고, 그 자모가 몰린 문장을 배낭 알고리즘으로 만든다 (5차시)
+  const weak = pickWeakJamo(errorTally, ranked, 3);
+  renderSuggestion(weak, buildPracticeSentence(WORDS, weak, 20).text);
 
   const minutes = currentElapsed() / 60000;
   renderSummary({
