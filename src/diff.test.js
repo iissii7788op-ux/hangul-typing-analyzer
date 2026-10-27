@@ -2,7 +2,8 @@
 //
 // 계획서에 적은 대로, 정답을 아는 짧은 예시부터 확인하고 긴 문장으로 넘어간다.
 import { decomposeToKeys } from './hangul.js';
-import { diffKeys, errorsInRemovedPart, countErrorPairs, countByKey, countByType, accuracy,
+import { diffKeys, trackErrors, missingErrors,
+         countErrorPairs, countByKey, countByType, accuracy,
          SUBSTITUTE, DELETE, INSERT, TRANSPOSE,
          NEIGHBOR, DISTANT, MISSING, EXTRA, SWAP } from './diff.js';
 
@@ -89,35 +90,6 @@ check('정확도 — 10개 중 2개 틀림', accuracy(10, 2), 80);
 check('정확도 — 다 맞음',          accuracy(10, 0), 100);
 check('정확도 — 입력 없음',        accuracy(0, 0), 0);
 
-// ── 고쳐서 흔적이 지워진 오타 ────────────────────────────
-console.log('\n[지우고 고친 오타]');
-
-const 안녕 = decomposeToKeys('안녕');          // ㅇㅏㄴㄴㅕㅇ
-
-// ㅛ 를 잘못 치고 백스페이스로 지운 순간
-check('지운 자리에 있던 오타를 건진다',
-      errorsInRemovedPart(안녕, decomposeToKeys('안뇨'), decomposeToKeys('안ㄴ'))
-        .map(o => `${o.from}>${o.to}:${o.category}`),
-      [`ㅕ>ㅛ:${NEIGHBOR}`]);
-
-// 맞게 친 것을 지운 경우에는 오타가 아니다
-check('맞게 친 것을 지우면 오타 없음',
-      errorsInRemovedPart(안녕, decomposeToKeys('안녀'), decomposeToKeys('안ㄴ')), []);
-
-// 아직 치지 않은 뒷부분이 오타로 쌓이면 안 된다
-check('안 친 뒷부분은 오타가 아니다',
-      errorsInRemovedPart(안녕, decomposeToKeys('안'), decomposeToKeys('아')), []);
-
-// 늘어난 경우에는 볼 것이 없다
-check('입력이 늘면 빈 목록',
-      errorsInRemovedPart(안녕, decomposeToKeys('안'), decomposeToKeys('안녕')), []);
-
-// 더 친 자모를 지운 경우도 오타다
-check('덧친 자모를 지우면 덧침으로 잡힌다',
-      errorsInRemovedPart(decomposeToKeys('가'), decomposeToKeys('강'), decomposeToKeys('가'))
-        .map(o => o.category),
-      [EXTRA]);
-
 // ── 한/영 전환을 안 하고 친 경우 ─────────────────────────
 console.log('\n[한글이 아닌 글자가 섞였을 때]');
 
@@ -137,6 +109,46 @@ check('한글 오타는 그대로 집계',
       countErrorPairs(diffKeys(decomposeToKeys('여'), decomposeToKeys('요')).ops)
         .map(p => `${p.from}>${p.to}`),
       ['ㅕ>ㅛ']);
+
+// ── 치는 내내 오타를 기록하기 ─────────────────────────────
+console.log('\n[고쳐도 오타가 남는가]');
+
+const 값싼 = decomposeToKeys('값싼');
+
+// 값씨 로 잘못 쳤다가 고치는 여러 경로. 어떤 길로 고쳐도 오타는 남아야 한다.
+function 쳐보기(단계들) {
+  const seen = new Map();
+  for (const 단계 of 단계들) trackErrors(seen, 값싼, decomposeToKeys(단계));
+  return [...seen.values()].map(o => `${o.from}>${o.to}`);
+}
+
+check('백스페이스로 지우고 다시 (길이가 줄어듦)',
+      쳐보기(['값', '값ㅆ', '값씨', '값ㅆ', '값싸', '값싼']), ['ㅏ>ㅣ']);
+
+check('덮어써서 고침 (길이가 그대로)',
+      쳐보기(['값', '값씨', '값싸', '값싼']), ['ㅏ>ㅣ']);
+
+check('조합이 이어지며 고쳐짐 (길이가 늘어남)',
+      쳐보기(['값', '값ㅆ', '값씨', '값씬', '값싼']), ['ㅏ>ㅣ']);
+
+check('맞게만 치면 오타 없음',
+      쳐보기(['값', '값ㅆ', '값싸', '값싼']), []);
+
+// 같은 자리에서 같은 실수를 되풀이해도 한 번으로 센다
+check('같은 오타를 반복해도 한 번',
+      쳐보기(['값씨', '값ㅆ', '값씨', '값ㅆ', '값싼']), ['ㅏ>ㅣ']);
+
+// 치는 도중에는 아직 안 친 뒷부분이 빠뜨림으로 보이므로 적지 않는다
+check('안 친 뒷부분은 오타가 아니다', 쳐보기(['값']), []);
+
+// 한글은 맞게 치는 동안 늘 제시의 앞부분이 된다(1차시 키 단위 분해 덕분).
+// 겹받침과 복합 모음이 섞여도 중간 상태가 오타로 잡히면 안 된다.
+check('겹받침을 거쳐도 오탐 없음',
+      쳐보기(['ㄱ', '가', '갑', '값', '값ㅆ', '값싸', '값싼']), []);
+
+// 빠뜨림은 문장을 다 치고 나서 센다
+check('끝내 빠뜨린 자모는 따로 센다',
+      missingErrors(값싼, decomposeToKeys('갑싼')).map(o => o.from), ['ㅅ']);
 
 console.log(`\n${pass}/${total} 통과`);
 process.exit(pass === total ? 0 : 1);

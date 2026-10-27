@@ -5,7 +5,7 @@
 
 import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js';
 import { decomposeToKeys } from './hangul.js';
-import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType,
+import { diffKeys, trackErrors, missingErrors, countErrorPairs, countByType,
          countByKey, accuracy, TYPE_LABEL } from './diff.js';
 import { isJamo } from './hangul.js';
 import { keyboardLayout } from './keyboard.js';
@@ -58,7 +58,7 @@ let elapsedMs   = 0;    // 앞서 재 둔 시간의 합 (라운드 전체)
 let timerId     = null;
 let keyTimes    = [];   // 키가 화면에 나타난 시각 (문장마다 새로 시작)
 let typedKeys   = [];   // 지금 문장에서 친 내용을 키 단위로 쪼갠 것
-let prevKeys    = [];   // 직전 입력. 백스페이스로 줄어든 것을 알아채려고 둔다
+let seenErrors  = new Map();  // 이 문장에서 본 오타. 고쳐도 기록은 남는다
 
 // 이번 라운드에서 모은 것들. 문장을 넘길 때마다 쌓인다.
 let round = null;
@@ -154,7 +154,7 @@ function stopTimer() {
 function loadSentence() {
   keyTimes = [];        // 자모 입력 시간은 문장마다 새로 잰다
   typedKeys = [];
-  prevKeys = [];
+  seenErrors = new Map();
   renderTarget(round.sentences[round.index]);
   inputEl.value = '';
   inputEl.classList.remove('is-over');
@@ -181,8 +181,9 @@ function collectSentence() {
   const targetKeys = decomposeToKeys(targetChars.join(''));
   const inputKeys  = decomposeToKeys(inputEl.value);
 
-  const { ops } = diffKeys(targetKeys, inputKeys);
-  round.ops.push(...ops);
+  // 치는 동안 본 오타(고쳐서 사라진 것 포함) + 끝내 빠뜨린 자모.
+  // 빠뜨림은 치는 도중에는 '아직 안 친 뒷부분' 과 구별할 수 없어 여기서 센다.
+  round.ops.push(...seenErrors.values(), ...missingErrors(targetKeys, inputKeys));
   round.durations.push(...keyDurations(typedKeys, keyTimes));
   round.targetKeyCount += targetKeys.length;
   round.typedKeyCount  += inputKeys.length;
@@ -217,13 +218,12 @@ inputEl.addEventListener('input', () => {
   // 다음 자모의 입력 시간에 섞이지 않는다.
   typedKeys = recordKeyTimes(inputEl.value, keyTimes, currentElapsed());
 
-  // 오타를 내면 보통 지우고 다시 친다. 그러면 최종 입력에 흔적이 남지 않아
-  // '오타 0곳' 이 되어 버린다. 줄어드는 순간에 건져 두어야 한다.
-  if (typedKeys.length < prevKeys.length && countNotHangul(inputEl.value) < 3) {
-    round.ops.push(...errorsInRemovedPart(
-      decomposeToKeys(targetChars.join('')), prevKeys, typedKeys));
+  // 오타를 내면 보통 지우고 다시 친다. 최종 입력만 보면 흔적이 없어 '오타 0곳'이
+  // 된다. 그래서 칠 때마다 맞춰 보고 본 적 없는 오타를 적어 둔다.
+  // 한 번이라도 틀렸으면 기록이 남으므로 그 뒤에 어떻게 고치든 상관없다.
+  if (countNotHangul(inputEl.value) < 3) {
+    trackErrors(seenErrors, decomposeToKeys(targetChars.join('')), typedKeys);
   }
-  prevKeys = typedKeys;
 
   paintTarget();
   updateProgress();

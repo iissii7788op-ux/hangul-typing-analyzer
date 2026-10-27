@@ -135,23 +135,38 @@ export function diffKeys(target, typed) {
   return { distance: d[target.length][typed.length], ops };
 }
 
-// ── 고쳐서 흔적이 지워진 오타 ────────────────────────────
+// ── 치는 내내 오타를 기록하기 ────────────────────────────
 //
-// 오타를 내면 보통 백스페이스로 지우고 다시 친다. 그러면 최종 입력에는
-// 흔적이 남지 않아 '오타 0곳' 이 되어 버린다. 하지만 그 자모에서 실수한 것은
-// 사실이고, 타자 연습에서는 그게 바로 알아야 할 정보다.
+// 오타를 내면 보통 백스페이스로 지우고 다시 친다. 최종 입력만 보면 흔적이 없어
+// '오타 0곳' 이 된다. 처음에는 '입력이 줄어드는 순간' 을 잡아 건졌는데,
+// 줄어들지 않으면서 고쳐지는 길이 여럿 있었다.
+//   값씨 -> 값싸  (글자를 골라 덮어쓰면 길이가 그대로)
+//   값ㅆ -> 값싸  (조합이 이어지며 오히려 늘어난다)
+// 한글은 조합 중에 글자가 통째로 바뀌기도 해서 '줄어듦' 이라는 신호 자체를
+// 믿을 수 없다.
 //
-// 그래서 입력이 줄어드는 순간, 지워지기 직전 상태를 제시 문장과 맞춰 보고
-// 지워지는 구간에 있던 오타만 건져 낸다.
+// 그래서 지우는 순간을 노리는 대신, 칠 때마다 맞춰 보고 본 적 없는 오타면 적어 둔다.
+// 한 번이라도 틀렸으면 기록이 남으므로 그 뒤에 어떻게 고치든 상관없다.
 //
-// 빠뜨림(DELETE)은 제외한다. 그것은 '입력에 없는 것' 이라 지워진 것이 아니라
-// 아직 치지 않은 뒷부분이기 때문이다. 그것까지 세면 백스페이스를 누를 때마다
-// 남은 문장 전체가 오타로 쌓인다.
-export function errorsInRemovedPart(targetKeys, prevKeys, nextKeys) {
-  if (prevKeys.length <= nextKeys.length) return [];
+// 빠뜨림(DELETE)은 적지 않는다. 치는 도중에는 아직 안 친 뒷부분이 전부
+// 빠뜨림으로 보이기 때문이다. 그것은 문장을 다 치고 나서 따로 센다.
+//
+// seen 의 열쇠는 '제시 문장의 몇 번째 자리에서 무엇을 무엇으로' 다.
+// 같은 자리에서 같은 실수를 되풀이해도 한 번으로 센다. 백스페이스를 눌렀다
+// 다시 치는 동안 같은 오타가 여러 번 보이는 것을 막으려는 것이다.
+export function trackErrors(seen, targetKeys, typedKeys) {
+  const { ops } = diffKeys(targetKeys, typedKeys);
+  for (const op of ops) {
+    if (op.type === DELETE) continue;
+    const key = `${op.targetIndex}:${op.from ?? ''}>${op.to ?? ''}`;
+    if (!seen.has(key)) seen.set(key, op);
+  }
+  return seen;
+}
 
-  const { ops } = diffKeys(targetKeys, prevKeys);
-  return ops.filter(op => op.type !== DELETE && op.typedIndex >= nextKeys.length);
+// 문장을 다 치고 나서, 끝내 빠뜨린 자모만 센다.
+export function missingErrors(targetKeys, typedKeys) {
+  return diffKeys(targetKeys, typedKeys).ops.filter(op => op.type === DELETE);
 }
 
 // ── 집계 ─────────────────────────────────────────────────
