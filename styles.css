@@ -367,3 +367,13 @@ h1, h2 { margin: 0; font-weight: 600; }
 }
 .save-state.is-saved { color: var(--accent); }
 .save-state.is-failed { color: var(--wrong); }
+
+/* 한/영 전환을 안 하고 칠 때 띄우는 안내 */
+.ime-warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--wrong-soft);
+  color: var(--wrong);
+  font-size: 13px;
+}

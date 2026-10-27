@@ -5,6 +5,7 @@
 // 그래서 표를 채운 뒤 거꾸로 되짚어(역추적) 연산 하나하나를 복원한다.
 
 import { isNeighborKey } from './keyboard.js';
+import { isJamo } from './hangul.js';
 
 // 편집 연산 네 가지
 export const SUBSTITUTE = 'substitute';  // 다른 자모를 눌렀다
@@ -155,12 +156,27 @@ export function errorsInRemovedPart(targetKeys, prevKeys, nextKeys) {
 
 // ── 집계 ─────────────────────────────────────────────────
 
+// 한/영 전환을 안 하고 친 것인지 가려낸다.
+//
+// '교실' 을 영문 상태로 치면 ryslf 가 들어와 'ㄱ 을 r 로 쳤다' 로 잡힌다.
+// 하지만 손가락은 ㄱ 자리(R키)를 정확히 눌렀다. 자판 실수가 아니라 입력 상태 문제다.
+// 이것을 자모 통계에 섞으면 'ㄱ 이 약하다' 는 엉뚱한 결론이 나고,
+// 그 자모로 맞춤 연습 문장까지 만들어 버린다.
+//
+// 틀린 것은 맞으므로 오타 개수와 정확도에는 그대로 둔다.
+// 다만 '어느 자모가 약한가' 를 따지는 집계에서만 뺀다.
+export function isJamoError(op) {
+  if (op.type === SUBSTITUTE) return isJamo(op.from) && isJamo(op.to);
+  if (op.type === INSERT)     return isJamo(op.to);
+  return isJamo(op.from);     // 빠뜨림과 자리바꿈은 제시 쪽 자모로 본다
+}
+
 // 어느 자모를 어느 자모로 잘못 쳤는지 세어 많은 순으로 돌려준다.
 // 교체만 센다. 빠뜨림과 덧침은 '쌍' 이 아니라서 순위에 넣으면 뜻이 흐려진다.
 export function countErrorPairs(ops) {
   const tally = new Map();
   for (const op of ops) {
-    if (op.type !== SUBSTITUTE) continue;
+    if (op.type !== SUBSTITUTE || !isJamoError(op)) continue;
     const key = `${op.from}>${op.to}`;
     const cur = tally.get(key) ?? { from: op.from, to: op.to, count: 0, category: op.category };
     cur.count += 1;
@@ -177,6 +193,7 @@ export function countErrorPairs(ops) {
 export function countByKey(ops) {
   const tally = new Map();
   for (const op of ops) {
+    if (!isJamoError(op)) continue;   // 한/영 전환 실수는 자판 탓이 아니다
     const key = op.from ?? op.to;
     if (!key) continue;
     tally.set(key, (tally.get(key) ?? 0) + 1);

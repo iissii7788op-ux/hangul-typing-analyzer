@@ -2,7 +2,7 @@
 //
 // 계획서에 적은 대로, 정답을 아는 짧은 예시부터 확인하고 긴 문장으로 넘어간다.
 import { decomposeToKeys } from './hangul.js';
-import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType, accuracy,
+import { diffKeys, errorsInRemovedPart, countErrorPairs, countByKey, countByType, accuracy,
          SUBSTITUTE, DELETE, INSERT, TRANSPOSE,
          NEIGHBOR, DISTANT, MISSING, EXTRA, SWAP } from './diff.js';
 
@@ -13,6 +13,12 @@ function check(label, actual, expected) {
   const ok = a === e;
   if (ok) pass++;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}\n        ${a}${ok ? '' : `\n  기대: ${e}`}`);
+}
+
+function checkTrue(label, cond, info = '') {
+  total++;
+  if (cond) pass++;
+  console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${info ? `  ${info}` : ''}`);
 }
 
 // 글자로 주면 키 단위로 쪼개서 비교한다 (실제 서비스가 하는 방식 그대로)
@@ -111,6 +117,26 @@ check('덧친 자모를 지우면 덧침으로 잡힌다',
       errorsInRemovedPart(decomposeToKeys('가'), decomposeToKeys('강'), decomposeToKeys('가'))
         .map(o => o.category),
       [EXTRA]);
+
+// ── 한/영 전환을 안 하고 친 경우 ─────────────────────────
+console.log('\n[한글이 아닌 글자가 섞였을 때]');
+
+// '교실' 을 영문 상태로 치면 ryslf 가 들어온다.
+// 손가락은 제 자리를 눌렀으니 자판 실수가 아니다. 자모 통계에 넣으면 안 된다.
+const 영문입력 = diffKeys(decomposeToKeys('교실'), [...'ryslf']);
+
+check('자모 오답 순위에서 빠진다', countErrorPairs(영문입력.ops), []);
+check('히트맵 집계에서도 빠진다', [...countByKey(영문입력.ops).keys()], []);
+
+// 그래도 틀린 것은 맞으므로 오타 개수에는 남는다
+checkTrue('오타 개수에는 남는다', 영문입력.ops.length > 0,
+          `-> ${영문입력.ops.length}곳`);
+
+// 한글끼리 틀린 것은 그대로 집계되어야 한다
+check('한글 오타는 그대로 집계',
+      countErrorPairs(diffKeys(decomposeToKeys('여'), decomposeToKeys('요')).ops)
+        .map(p => `${p.from}>${p.to}`),
+      ['ㅕ>ㅛ']);
 
 console.log(`\n${pass}/${total} 통과`);
 process.exit(pass === total ? 0 : 1);

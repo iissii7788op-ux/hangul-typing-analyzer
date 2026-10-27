@@ -7,6 +7,7 @@ import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js'
 import { decomposeToKeys } from './hangul.js';
 import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType,
          countByKey, accuracy, TYPE_LABEL } from './diff.js';
+import { isJamo } from './hangul.js';
 import { keyboardLayout } from './keyboard.js';
 import { pickWeakJamo, buildPracticeSentence } from './practice.js';
 import { WORDS } from './words.js';
@@ -105,6 +106,13 @@ function paintTarget() {
   inputEl.classList.toggle('is-over', extra > 0);
 }
 
+// 한/영 전환을 안 하고 치면 'rysldptj' 같은 글자가 들어온다.
+// 통계에서 걸러 내기만 하면 '왜 오타가 안 잡히지?' 하고 더 헷갈리므로,
+// 치는 중에 바로 알려 준다. 한두 글자는 지나가고 세 글자부터 띄운다.
+function checkInputMode() {
+  document.getElementById('ime-warning').hidden = countNotHangul(inputEl.value) < 3;
+}
+
 function updateProgress() {
   progressEl.textContent = `${[...inputEl.value].length} / ${targetChars.length}`;
   sentenceNoEl.textContent = `${round.index + 1} / ${round.sentences.length}`;
@@ -150,13 +158,26 @@ function loadSentence() {
   renderTarget(round.sentences[round.index]);
   inputEl.value = '';
   inputEl.classList.remove('is-over');
+  document.getElementById('ime-warning').hidden = true;
   updateProgress();
   paintTarget();
   inputEl.focus();
 }
 
+// 입력에 한글 아닌 글자가 몇 개나 섞였는지 센다. 한/영 전환 여부를 가리는 잣대다.
+function countNotHangul(text) {
+  return decomposeToKeys(text).filter(k => k.trim() !== '' && !isJamo(k)).length;
+}
+
 // 지금 문장에서 나온 결과를 라운드에 쌓는다.
+//
+// 한/영 전환을 안 하고 친 문장은 통째로 뺀다.
+// 자모 하나하나만 걸러서는 모자란다. 영문으로 치면 제시 문장과 아예 어긋나서
+// 치지도 않은 뒷부분이 전부 '빠뜨림' 으로 쌓이고, 그 자모들이 취약 자모로
+// 뽑혀 엉뚱한 맞춤 연습 문장이 만들어진다.
 function collectSentence() {
+  if (countNotHangul(inputEl.value) >= 3) return;
+
   const targetKeys = decomposeToKeys(targetChars.join(''));
   const inputKeys  = decomposeToKeys(inputEl.value);
 
@@ -198,7 +219,7 @@ inputEl.addEventListener('input', () => {
 
   // 오타를 내면 보통 지우고 다시 친다. 그러면 최종 입력에 흔적이 남지 않아
   // '오타 0곳' 이 되어 버린다. 줄어드는 순간에 건져 두어야 한다.
-  if (typedKeys.length < prevKeys.length) {
+  if (typedKeys.length < prevKeys.length && countNotHangul(inputEl.value) < 3) {
     round.ops.push(...errorsInRemovedPart(
       decomposeToKeys(targetChars.join('')), prevKeys, typedKeys));
   }
@@ -206,6 +227,7 @@ inputEl.addEventListener('input', () => {
 
   paintTarget();
   updateProgress();
+  checkInputMode();
 });
 
 // 엔터로 다음 문장. textarea 라서 그냥 두면 줄바꿈이 들어간다.
