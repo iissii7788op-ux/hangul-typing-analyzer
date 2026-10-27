@@ -10,6 +10,7 @@ import { diffKeys, errorsInRemovedPart, countErrorPairs, countByType,
 import { keyboardLayout } from './keyboard.js';
 import { pickWeakJamo, buildPracticeSentence } from './practice.js';
 import { WORDS } from './words.js';
+import { saveSession, loadSessions, loadCumulativeErrors } from './db.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
 const SENTENCES = [
@@ -34,6 +35,7 @@ function show(name) {
   // 완료 버튼에만 걸어 두면 '기록 보기'로 나갔을 때 시계가 계속 돌아간다.
   if (name !== 'practice') stopTimer();
   for (const [key, el] of Object.entries(screens)) el.hidden = (key !== name);
+  if (name === 'record') loadRecordScreen();
 }
 
 // ── 연습 화면 ────────────────────────────────────────────
@@ -70,6 +72,7 @@ function newRound(sentences = null) {
     index: 0,
     ops: [],              // 오타 연산 (고쳐서 지운 것까지 포함)
     durations: [],        // 키마다 걸린 시간
+    texts: [],            // 문장마다 { target, typed } — 데이터베이스에 그대로 담는다
     targetKeyCount: 0,
     typedKeyCount: 0,
   };
@@ -162,6 +165,7 @@ function collectSentence() {
   round.durations.push(...keyDurations(typedKeys, keyTimes));
   round.targetKeyCount += targetKeys.length;
   round.typedKeyCount  += inputKeys.length;
+  round.texts.push({ target: targetChars.join(''), typed: inputEl.value });
 }
 
 // 새 연습을 시작한다. 문장을 새로 뽑고 입력과 시계를 초기화한다.
@@ -396,7 +400,8 @@ function showRoundResult() {
   // 비교는 글자가 아니라 키 단위로 했다. '값'을 '갑'으로 쳤을 때
   // 'ㅄ을 ㅂ으로 교체'가 아니라 'ㅅ을 빠뜨림'으로 잡혀야 하기 때문이다.
   const ops = round.ops;
-  renderErrorPairs(countErrorPairs(ops));
+  const errorPairs = countErrorPairs(ops);
+  renderErrorPairs(errorPairs);
   renderTypes(countByType(ops));
   const errorTally = countByKey(ops);
   renderHeatmap(errorTally);
@@ -414,7 +419,41 @@ function showRoundResult() {
   });
 
   logErrors(ops);
-  show('result');   // 자판 히트맵과 맞춤 연습 문장은 5차시
+  show('result');
+
+  // 기록을 데이터베이스에 담는다 (7차시).
+  // 저장이 늦거나 실패해도 결과 화면은 이미 떠 있어야 하므로 기다리지 않는다.
+  saveRound(errorPairs, ranked);
+}
+
+// 한 라운드의 결과를 Supabase 에 저장한다.
+// 저장은 네트워크를 타는 일이라 실패할 수 있다. 실패해도 화면은 그대로 두고
+// 무슨 일이 있었는지만 알려 준다. 연습 결과를 못 보는 쪽이 더 나쁘기 때문이다.
+async function saveRound(errorPairs, jamoTimes) {
+  const stateEl = document.getElementById('save-state');
+  if (round.targetKeyCount === 0) { stateEl.textContent = ''; return; }
+
+  stateEl.className = 'save-state';
+  stateEl.textContent = '저장 중…';
+
+  try {
+    await saveSession({
+      accuracy: accuracy(round.targetKeyCount, round.ops.length),
+      cpm: Number(document.getElementById('sum-cpm').textContent) || 0,
+      errorCount: round.ops.length,
+      elapsedMs: currentElapsed(),
+      sentences: round.texts,
+      suggested: suggestedSentence,
+      errorPairs,
+      jamoTimes,
+    });
+    stateEl.className = 'save-state is-saved';
+    stateEl.textContent = '기록 저장됨';
+  } catch (e) {
+    console.error('기록 저장 실패:', e);
+    stateEl.className = 'save-state is-failed';
+    stateEl.textContent = '기록 저장 실패 (연습 결과는 그대로 보입니다)';
+  }
 }
 
 doneBtn.addEventListener('click', showRoundResult);
@@ -467,17 +506,6 @@ startPractice();
 // 지금은 아래 예시 데이터로 그려서 배치를 확인한다.
 // 그리는 함수는 그대로 두고 데이터만 바꿔 끼우면 되도록 나눠 두었다.
 // ─────────────────────────────────────────────────────────────
-
-const SAMPLE_RECORD = {
-  accuracy:   [82, 86, 84, 90, 93, 91, 96],           // 회차별 정확도(%)
-  weakPairs:  [['ㅓ','ㅛ',31], ['ㄴ','ㅇ',15], ['ㅅ','ㅆ',9], ['ㅐ','ㅔ',6]],
-  history:    [
-    { date: '9월 8일', accuracy: 96, cpm: 312 },
-    { date: '9월 7일', accuracy: 91, cpm: 298 },
-    { date: '9월 5일', accuracy: 93, cpm: 305 },
-    { date: '9월 3일', accuracy: 90, cpm: 287 },
-  ],
-};
 
 // ── 꺾은선 그래프 ────────────────────────────────────────
 // 라이브러리 없이 SVG 를 직접 만든다.
@@ -538,7 +566,14 @@ function renderAccuracyChart(values) {
 function renderWeakPairs(pairs) {
   const list = document.getElementById('cumulative-list');
   list.textContent = '';
-  for (const [from, to, count] of pairs) {
+  list.classList.toggle('is-empty', pairs.length === 0);
+  if (pairs.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = '아직 쌓인 오타가 없습니다';
+    list.appendChild(li);
+    return;
+  }
+  for (const [from, to, count] of pairs.slice(0, 8)) {
     const li = document.createElement('li');
     li.innerHTML = `<span class="pair">${from} <em>→</em> ${to}</span><span class="count">${count} 회</span>`;
     list.appendChild(li);
@@ -549,6 +584,13 @@ function renderWeakPairs(pairs) {
 function renderHistory(rows) {
   const list = document.getElementById('history-list');
   list.textContent = '';
+  list.classList.toggle('is-empty', rows.length === 0);
+  if (rows.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = '아직 연습 기록이 없습니다';
+    list.appendChild(li);
+    return;
+  }
   for (const { date, accuracy, cpm } of rows) {
     const li = document.createElement('li');
     li.innerHTML = `<span class="date">${date}</span>`
@@ -557,6 +599,32 @@ function renderHistory(rows) {
   }
 }
 
-renderAccuracyChart(SAMPLE_RECORD.accuracy);
-renderWeakPairs(SAMPLE_RECORD.weakPairs);
-renderHistory(SAMPLE_RECORD.history);
+// 기록 화면을 열 때마다 데이터베이스에서 새로 읽어 온다 (8차시).
+// 연습을 마치고 바로 들어와도 방금 것이 보이게 하려는 것이다.
+async function loadRecordScreen() {
+  const chartBox = document.getElementById('accuracy-chart');
+  chartBox.classList.add('is-empty');
+  chartBox.textContent = '불러오는 중…';
+
+  try {
+    const [sessions, errors] = await Promise.all([loadSessions(20), loadCumulativeErrors()]);
+
+    // 불러올 때는 최근 것이 먼저 오므로, 그래프는 오래된 순으로 뒤집어 그린다.
+    renderAccuracyChart([...sessions].reverse().map(s => s.accuracy));
+    renderWeakPairs(errors.map(e => [e.from, e.to ?? '-', e.count]));
+    renderHistory(sessions.map(s => ({
+      date: formatDate(s.created_at),
+      accuracy: s.accuracy,
+      cpm: s.cpm,
+    })));
+  } catch (e) {
+    console.error('기록 불러오기 실패:', e);
+    chartBox.classList.add('is-empty');
+    chartBox.textContent = '기록을 불러오지 못했습니다';
+  }
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
