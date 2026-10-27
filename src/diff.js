@@ -154,8 +154,14 @@ export function diffKeys(target, typed) {
 // seen 의 열쇠는 '제시 문장의 몇 번째 자리에서 무엇을 무엇으로' 다.
 // 같은 자리에서 같은 실수를 되풀이해도 한 번으로 센다. 백스페이스를 눌렀다
 // 다시 치는 동안 같은 오타가 여러 번 보이는 것을 막으려는 것이다.
-export function trackErrors(seen, targetKeys, typedKeys) {
-  const { ops } = diffKeys(targetKeys, typedKeys);
+//
+// 비교할 때는 제시 문장을 '지금까지 친 만큼' 잘라 쓴다.
+// 문장 전체와 맞추면 아직 치지 않은 뒷부분이 통째로 빠뜨림이 되고,
+// 그 틈에서 같은 오타가 글자를 칠 때마다 다른 자모 쌍으로 잡힌다.
+// (로 -> 루 하나를 ㅓ>ㅜ, ㅡ>ㅜ, ㅗ>ㅜ 로 세 번 적은 적이 있다.)
+// 잘라서 맞추면 뒷부분이 사라져 정렬이 흔들리지 않는다.
+export function trackErrors(seen, fullTarget, typedKeys) {
+  const { ops } = diffKeys(fullTarget.slice(0, typedKeys.length), typedKeys);
   for (const op of ops) {
     if (op.type === DELETE) continue;
     const key = `${op.targetIndex}:${op.from ?? ''}>${op.to ?? ''}`;

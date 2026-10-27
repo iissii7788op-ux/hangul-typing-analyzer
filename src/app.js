@@ -59,6 +59,7 @@ let timerId     = null;
 let keyTimes    = [];   // 키가 화면에 나타난 시각 (문장마다 새로 시작)
 let typedKeys   = [];   // 지금 문장에서 친 내용을 키 단위로 쪼갠 것
 let seenErrors  = new Map();  // 이 문장에서 본 오타. 고쳐도 기록은 남는다
+let pendingEnter = false;     // 조합 중에 누른 엔터. 조합이 끝나면 이어서 처리한다
 
 // 이번 라운드에서 모은 것들. 문장을 넘길 때마다 쌓인다.
 let round = null;
@@ -155,6 +156,7 @@ function loadSentence() {
   keyTimes = [];        // 자모 입력 시간은 문장마다 새로 잰다
   typedKeys = [];
   seenErrors = new Map();
+  pendingEnter = false;
   renderTarget(round.sentences[round.index]);
   inputEl.value = '';
   inputEl.classList.remove('is-over');
@@ -175,11 +177,15 @@ function countNotHangul(text) {
 // 자모 하나하나만 걸러서는 모자란다. 영문으로 치면 제시 문장과 아예 어긋나서
 // 치지도 않은 뒷부분이 전부 '빠뜨림' 으로 쌓이고, 그 자모들이 취약 자모로
 // 뽑혀 엉뚱한 맞춤 연습 문장이 만들어진다.
-function collectSentence() {
+// partial 이면 '치다 만 문장' 이라는 뜻이다. 친 데까지만 제시 문장과 견준다.
+// 안 친 뒷부분까지 넣으면 그게 전부 빠뜨림으로 쌓여 통계가 망가진다.
+function collectSentence({ partial = false } = {}) {
+  if (inputEl.value === '') return;
   if (countNotHangul(inputEl.value) >= 3) return;
 
-  const targetKeys = decomposeToKeys(targetChars.join(''));
   const inputKeys  = decomposeToKeys(inputEl.value);
+  const fullTarget = decomposeToKeys(targetChars.join(''));
+  const targetKeys = partial ? fullTarget.slice(0, inputKeys.length) : fullTarget;
 
   // 치는 동안 본 오타(고쳐서 사라진 것 포함) + 끝내 빠뜨린 자모.
   // 빠뜨림은 치는 도중에는 '아직 안 친 뒷부분' 과 구별할 수 없어 여기서 센다.
@@ -231,10 +237,23 @@ inputEl.addEventListener('input', () => {
 });
 
 // 엔터로 다음 문장. textarea 라서 그냥 두면 줄바꿈이 들어간다.
+//
+// 한글은 마지막 글자가 '조합 중' 인 상태가 있다. 문장을 다 치고 바로 엔터를 누르면
+// 그 엔터는 글자를 확정하는 데 쓰여서(e.isComposing) 문장이 넘어가지 않는다.
+// 사용자 눈에는 '엔터를 눌렀는데 가만히 있는' 것으로 보인다.
+// 그래서 눌렀다는 사실을 적어 두었다가, 조합이 끝나는 순간 이어서 처리한다.
 inputEl.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || e.isComposing) return;   // 조합 중 엔터는 글자 확정용이다
-  e.preventDefault();
+  if (e.key !== 'Enter') return;
+  e.preventDefault();                               // 줄바꿈은 언제나 막는다
+  if (e.isComposing) { pendingEnter = true; return; }
   nextSentence();
+});
+
+inputEl.addEventListener('compositionend', () => {
+  if (!pendingEnter) return;
+  pendingEnter = false;
+  // 확정된 글자가 입력창에 반영된 뒤에 넘겨야 마지막 글자가 빠지지 않는다.
+  setTimeout(nextSentence, 0);
 });
 
 // 자모별 입력 시간을 콘솔에 찍는다.
@@ -410,6 +429,9 @@ function renderSummary({ acc, cpm, errorCount, hasData }) {
 // 반쯤 치다 만 문장을 넣으면 아직 치지 않은 뒷부분이 전부 '빠뜨림' 으로
 // 쌓여서 통계가 망가진다. (안 친 문장 하나로 빠뜨림 39회가 잡힌 적이 있다.)
 function showRoundResult() {
+  // 치던 문장도 친 만큼은 담는다. 엔터를 누르지 않았다고 통째로 버리면
+  // 한 문장만 치고 결과를 본 사람에게는 '오타 0곳' 이 되어 버린다.
+  collectSentence({ partial: true });
   round.index = round.sentences.length;
   stopTimer();
 

@@ -147,6 +147,17 @@ check('겹받침을 거쳐도 오탐 없음',
       쳐보기(['ㄱ', '가', '갑', '값', '값ㅆ', '값싸', '값싼']), []);
 
 // 빠뜨림은 문장을 다 치고 나서 센다
+// 오타 하나는 하나로만 세어야 한다.
+// 글자를 칠 때마다 정렬이 흔들려 같은 오타가 여러 번 쌓이던 적이 있다.
+const 한문장 = decomposeToKeys('희망찬 목소리로');
+const 친것 = '희망찬 목소리루';
+const seen한번 = new Map();
+for (let i = 1; i <= 친것.length; i++) {
+  trackErrors(seen한번, 한문장, decomposeToKeys(친것.slice(0, i)));
+}
+check('오타 하나는 한 번만 센다',
+      [...seen한번.values()].map(o => `${o.from}>${o.to}`), ['ㅗ>ㅜ']);
+
 check('끝내 빠뜨린 자모는 따로 센다',
       missingErrors(값싼, decomposeToKeys('갑싼')).map(o => o.from), ['ㅅ']);
 
