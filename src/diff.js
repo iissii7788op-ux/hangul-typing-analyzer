@@ -234,9 +234,14 @@ export function countByType(ops) {
   }));
 }
 
-// 정확도(%). 제시한 자모 중 제대로 친 비율로 본다.
-export function accuracy(targetLength, distance) {
-  if (targetLength === 0) return 0;
-  const correct = Math.max(0, targetLength - distance);
-  return Math.round((correct / targetLength) * 100);
+// 정확도(%).
+//
+// 분모를 제시 길이로만 잡으면, 제시보다 길게 쳤을 때 숫자가 무너진다.
+// 제시를 정확히 치고 뒤에 더 붙였더니 덧침이 제시 길이를 넘어서 정확도가
+// 7% 로 나온 적이 있다. 덧침은 제시에 없는 자리라 분모에 들어가지 않기 때문이다.
+// 그래서 제시와 입력 중 긴 쪽을 분모로 삼는다.
+export function accuracy(targetLength, typedLength, errorCount) {
+  const total = Math.max(targetLength, typedLength);
+  if (total === 0) return 0;
+  return Math.round((Math.max(0, total - errorCount) / total) * 100);
 }

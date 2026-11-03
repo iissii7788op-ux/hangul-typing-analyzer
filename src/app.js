@@ -60,6 +60,7 @@ let keyTimes    = [];   // 키가 화면에 나타난 시각 (문장마다 새�
 let typedKeys   = [];   // 지금 문장에서 친 내용을 키 단위로 쪼갠 것
 let seenErrors  = new Map();  // 이 문장에서 본 오타. 고쳐도 기록은 남는다
 let pendingEnter = false;     // 조합 중에 누른 엔터. 조합이 끝나면 이어서 처리한다
+let sentenceDone = false;     // 지금 문장을 이미 담았는지
 
 // 이번 라운드에서 모은 것들. 문장을 넘길 때마다 쌓인다.
 let round = null;
@@ -157,6 +158,7 @@ function loadSentence() {
   typedKeys = [];
   seenErrors = new Map();
   pendingEnter = false;
+  sentenceDone = false;
   renderTarget(round.sentences[round.index]);
   inputEl.value = '';
   inputEl.classList.remove('is-over');
@@ -180,6 +182,10 @@ function countNotHangul(text) {
 // partial 이면 '치다 만 문장' 이라는 뜻이다. 친 데까지만 제시 문장과 견준다.
 // 안 친 뒷부분까지 넣으면 그게 전부 빠뜨림으로 쌓여 통계가 망가진다.
 function collectSentence({ partial = false } = {}) {
+  // 마지막 문장에서 엔터를 누르면 nextSentence 가 담고 곧바로 showRoundResult 로
+  // 넘어가는데, 그때 입력창에는 그 문장이 그대로 남아 있어 한 번 더 담길 뻔했다.
+  // 문장당 한 번만 담도록 표시해 둔다.
+  if (sentenceDone) return;
   if (inputEl.value === '') return;
   if (countNotHangul(inputEl.value) >= 3) return;
 
@@ -194,6 +200,7 @@ function collectSentence({ partial = false } = {}) {
   round.targetKeyCount += targetKeys.length;
   round.typedKeyCount  += inputKeys.length;
   round.texts.push({ target: targetChars.join(''), typed: inputEl.value });
+  sentenceDone = true;
 }
 
 // 새 연습을 시작한다. 문장을 새로 뽑고 입력과 시계를 초기화한다.
@@ -455,25 +462,23 @@ function showRoundResult() {
   renderSuggestion(weak, buildPracticeSentence(WORDS, weak, 20).text);
 
   const minutes = currentElapsed() / 60000;
-  renderSummary({
-    hasData: round.targetKeyCount > 0,
-    acc: accuracy(round.targetKeyCount, ops.length),
-    cpm: minutes > 0 ? Math.round(round.typedKeyCount / minutes) : 0,
-    errorCount: ops.length,
-  });
+  const acc = accuracy(round.targetKeyCount, round.typedKeyCount, ops.length);
+  const cpm = minutes > 0 ? Math.round(round.typedKeyCount / minutes) : 0;
+
+  renderSummary({ hasData: round.targetKeyCount > 0, acc, cpm, errorCount: ops.length });
 
   logErrors(ops);
   show('result');
 
   // 기록을 데이터베이스에 담는다 (7차시).
   // 저장이 늦거나 실패해도 결과 화면은 이미 떠 있어야 하므로 기다리지 않는다.
-  saveRound(errorPairs, ranked);
+  saveRound({ acc, cpm, errorPairs, jamoTimes: ranked });
 }
 
 // 한 라운드의 결과를 Supabase 에 저장한다.
 // 저장은 네트워크를 타는 일이라 실패할 수 있다. 실패해도 화면은 그대로 두고
 // 무슨 일이 있었는지만 알려 준다. 연습 결과를 못 보는 쪽이 더 나쁘기 때문이다.
-async function saveRound(errorPairs, jamoTimes) {
+async function saveRound({ acc, cpm, errorPairs, jamoTimes }) {
   const stateEl = document.getElementById('save-state');
   if (round.targetKeyCount === 0) { stateEl.textContent = ''; return; }
 
@@ -482,8 +487,10 @@ async function saveRound(errorPairs, jamoTimes) {
 
   try {
     await saveSession({
-      accuracy: accuracy(round.targetKeyCount, round.ops.length),
-      cpm: Number(document.getElementById('sum-cpm').textContent) || 0,
+      // 화면에 적힌 글자를 도로 읽지 않고 계산한 값을 그대로 쓴다.
+      // 표시 방식을 바꾸면 저장되는 숫자까지 틀어지기 때문이다.
+      accuracy: acc,
+      cpm,
       errorCount: round.ops.length,
       elapsedMs: currentElapsed(),
       sentences: round.texts,

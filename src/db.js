@@ -90,9 +90,13 @@ export async function loadSessions(limit = 20) {
 // 합계를 고칠 때가 어긋나면 숫자가 틀어진다. 기록이 몇 백 줄 수준이라
 // 불러와서 더하는 편이 단순하고 틀릴 일이 없다.
 export async function loadCumulativeErrors() {
+  // 상한을 두지 않으면 기록이 쌓일수록 느려진다.
+  // 최근 것부터 가져오며, 취약 자모를 가리는 데는 이 정도면 넉넉하다.
   const { data, error } = await supabase
     .from('session_errors')
-    .select('from_jamo, to_jamo, category, count');
+    .select('from_jamo, to_jamo, category, count')
+    .order('id', { ascending: false })
+    .limit(2000);
   if (error) throw error;
 
   const tally = new Map();
