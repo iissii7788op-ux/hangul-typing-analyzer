@@ -429,7 +429,9 @@ function renderSuggestion(weakJamo, sentences) {
 
 // 맞춤 문장 묶음으로 짧게 한 라운드를 돈다. 문장 하나가 한 줄(엔터로 넘기는 단위)이다.
 document.getElementById('btn-practice-suggest').addEventListener('click', () => {
-  if (suggestedSentences.length) startPractice([...suggestedSentences]);
+  if (!suggestedSentences.length) return;
+  roundRequest++;   // 불러오던 맞춤 라운드가 있으면 이 라운드를 덮지 않게
+  startPractice([...suggestedSentences]);
 });
 
 function renderSummary({ acc, cpm, errorCount, hasData }) {
@@ -578,10 +580,18 @@ async function refreshCustomMode() {
   }
 }
 
+// 새 라운드를 요청할 때마다 1씩 올린다. 기록을 불러오는 사이에 기본 진단으로 바꾸거나
+// 새로 연습을 또 누르면, 늦게 도착한 옛 요청이 화면을 덮어쓰지 않게 하려는 것이다.
+// (맞춤 훈련을 눌렀다 바로 기본 진단으로 돌아오면, 기본 진단이 선택된 채로
+//  1초 뒤 맞춤 문장이 뜨는 일이 있었다.)
+let roundRequest = 0;
+
 async function startCustomPractice() {
+  const myRequest = roundRequest;
   modeHint.textContent = '누적 기록으로 맞춤 문장을 고르는 중…';
   try {
     const [errors, times] = await Promise.all([loadCumulativeErrors(), loadCumulativeJamoTimes()]);
+    if (myRequest !== roundRequest) return;   // 그 사이 다른 라운드가 요청됐다
     const weak = cumulativeWeakJamo(errors, times, 3);
     const opts = { maxChars: CUSTOM_ROUND_CHARS };
     let set = buildPracticeSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak,
@@ -597,6 +607,7 @@ async function startCustomPractice() {
     startPractice(set.sentences);
   } catch (e) {
     console.error('맞춤 훈련 준비 실패:', e);
+    if (myRequest !== roundRequest) return;
     modeHint.textContent = '맞춤 문장을 만들지 못해 기본 진단으로 연습합니다';
     startPractice();
   }
@@ -604,6 +615,7 @@ async function startCustomPractice() {
 
 // 새 라운드는 고른 모드를 따른다.
 function startNewRound() {
+  roundRequest++;
   if (mode === 'custom') startCustomPractice();
   else startPractice();
 }
@@ -631,6 +643,9 @@ for (const btn of document.querySelectorAll('[data-go]')) {
 }
 
 // ── 시작 ─────────────────────────────────────────────────
+// 새로고침하면 브라우저(특히 Firefox)가 고른 라디오를 되살려 놓을 수 있다.
+// 그러면 '맞춤 훈련' 이 선택된 채로 기본 진단 문장이 나오므로 늘 기본 진단에서 시작한다.
+document.querySelector('input[name="mode"][value="basic"]').checked = true;
 startPractice();
 refreshCustomMode();
 
