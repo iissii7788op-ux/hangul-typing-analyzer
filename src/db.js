@@ -111,6 +111,40 @@ export async function loadCumulativeErrors() {
   return [...tally.values()].sort((a, b) => b.count - a.count);
 }
 
+// 지금까지 저장된 연습 횟수. 맞춤 훈련 모드를 열지 정할 때 쓴다.
+// 줄을 내려받지 않고 개수만 센다 (head: true).
+export async function countSessions() {
+  await ensureSignedIn();
+  const { error, count } = await supabase
+    .from('practice_sessions')
+    .select('id', { count: 'exact', head: true });
+  if (error) throw error;
+  return count ?? 0;
+}
+
+// 누적 자모별 평균 입력 시간. 회차마다 평균이 따로 저장되어 있으므로
+// 친 횟수(count)로 가중해서 다시 평균을 낸다. 회차 평균을 그냥 평균하면
+// 두 번 친 회차와 스무 번 친 회차가 같은 무게를 갖게 된다.
+export async function loadCumulativeJamoTimes() {
+  const { data, error } = await supabase
+    .from('session_jamo_times')
+    .select('jamo, avg_ms, count')
+    .order('id', { ascending: false })
+    .limit(2000);
+  if (error) throw error;
+
+  const sum = new Map();
+  for (const row of data) {
+    const cur = sum.get(row.jamo) ?? { ms: 0, n: 0 };
+    cur.ms += row.avg_ms * row.count;
+    cur.n  += row.count;
+    sum.set(row.jamo, cur);
+  }
+  return [...sum.entries()]
+    .map(([key, { ms, n }]) => ({ key, avg: n ? ms / n : 0, count: n }))
+    .sort((a, b) => b.avg - a.avg);
+}
+
 // 연결이 살아 있는지 확인한다. 6차시 목표가 바로 이것이다.
 export async function checkConnection() {
   const user = await ensureSignedIn();

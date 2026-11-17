@@ -2,6 +2,7 @@
 import {
   pickWeakJamo, wordValue, buildPracticeSentence, charCount,
   attachJosa, parseTemplate, fillTemplate, buildPracticeSet,
+  cumulativeWeakJamo, CUSTOM_UNLOCK_SESSIONS,
 } from './practice.js';
 import { decomposeToKeys } from './hangul.js';
 import { WORDS } from './words.js';
@@ -160,6 +161,30 @@ for (const 취약 of [['ㄹ', 'ㅏ', 'ㄴ'], ['ㅕ', 'ㅡ', 'ㅆ'], ['ㅃ', 'ㅉ
             묶.sentences.length >= 2 && charCount(묶.sentences.join('')) <= 50,
             `-> ${묶.sentences.join(' / ')}`);
 }
+
+// ── 9) 맞춤 훈련 모드: 누적 기록과 지난 문장 빼기 ─────────────
+console.log('\n[맞춤 훈련]');
+
+// 여러 회차에 흩어진 같은 자모의 오류는 합쳐서 센다
+check('회차별 오류를 자모별로 합친다',
+      cumulativeWeakJamo([
+        { from: 'ㅕ', count: 2 }, { from: 'ㄱ', count: 3 }, { from: 'ㅕ', count: 2 },
+      ], [], 2),
+      ['ㅕ', 'ㄱ']);
+check('느린 자모도 함께 본다',
+      cumulativeWeakJamo([{ from: 'ㄱ', count: 1 }], [{ key: 'ㅎ', avg: 600 }], 2), ['ㅎ', 'ㄱ']);
+check('기록이 없으면 취약 자모도 없다', cumulativeWeakJamo([], [], 3), []);
+checkTrue('3판이 쌓여야 열린다', CUSTOM_UNLOCK_SESSIONS === 3);
+
+const 첫판 = buildPracticeSet(SENTENCES, TEMPLATES, CATEGORIES, ['ㅕ', 'ㅡ', 'ㅆ'], { maxChars: 80 });
+const 둘째판 = buildPracticeSet(SENTENCES, TEMPLATES, CATEGORIES, ['ㅕ', 'ㅡ', 'ㅆ'],
+                              { maxChars: 80, exclude: 첫판.sentences });
+checkTrue('맞춤 라운드는 80자 안에서 4문장 이상',
+          첫판.sentences.length >= 4 && charCount(첫판.sentences.join('')) <= 80,
+          `-> ${첫판.sentences.length}문장`);
+checkTrue('지난 라운드 문장은 다시 나오지 않는다',
+          둘째판.sentences.length > 0 && 둘째판.sentences.every(s => !첫판.sentences.includes(s)),
+          `-> ${둘째판.sentences.join(' / ')}`);
 
 console.log(`\n${pass}/${total} 통과`);
 process.exit(pass === total ? 0 : 1);

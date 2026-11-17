@@ -9,10 +9,12 @@ import { createErrorTracker, countErrorPairs, countByType,
          countByKey, accuracy, TYPE_LABEL } from './diff.js';
 import { isJamo } from './hangul.js';
 import { keyboardLayout } from './keyboard.js';
-import { pickWeakJamo, buildPracticeSet } from './practice.js';
+import { pickWeakJamo, buildPracticeSet, cumulativeWeakJamo,
+         CUSTOM_UNLOCK_SESSIONS } from './practice.js';
 import { SENTENCES as PRACTICE_SENTENCES } from './sentences.js';
 import { TEMPLATES, CATEGORIES } from './templates.js';
-import { saveSession, loadSessions, loadCumulativeErrors } from './db.js';
+import { saveSession, loadSessions, loadCumulativeErrors,
+         countSessions, loadCumulativeJamoTimes } from './db.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
 const SENTENCES = [
@@ -508,6 +510,7 @@ async function saveRound({ acc, cpm, errorPairs, jamoTimes }) {
     });
     stateEl.className = 'save-state is-saved';
     stateEl.textContent = '기록 저장됨';
+    refreshCustomMode();   // 이번 판으로 맞춤 훈련이 열릴 수도 있다
   } catch (e) {
     console.error('기록 저장 실패:', e);
     stateEl.className = 'save-state is-failed';
@@ -537,8 +540,80 @@ function resumePractice() {
 // 기록 화면에서 연습으로 돌아올 때.
 // 라운드가 아직 안 끝났으면 치던 자리에서 이어서, 끝났으면 새 라운드로.
 function goPractice() {
-  if (round === null || roundFinished()) startPractice();
+  if (round === null || roundFinished()) startNewRound();
   else resumePractice();
+}
+
+// ── 맞춤 훈련 모드 ───────────────────────────────────────
+// 기본 진단은 고정 문장으로 실력을 재고, 맞춤 훈련은 지금까지 쌓인 기록 전체에서
+// 취약 자모를 골라 그 자모가 몰린 문장으로 연습한다.
+// 진단 기록이 CUSTOM_UNLOCK_SESSIONS 판 쌓여야 열린다.
+let mode = 'basic';
+let lastCustomSentences = [];   // 지난 맞춤 라운드 문장. 다음 라운드에서는 뺀다
+
+// 맞춤 라운드 하나의 길이. 기본 진단(5문장)과 비슷하게 5~6문장이 나오는 길이다.
+const CUSTOM_ROUND_CHARS = 80;
+
+const customLabel = document.getElementById('mode-custom');
+const customRadio = customLabel.querySelector('input');
+const modeHint    = document.getElementById('mode-hint');
+
+// 저장된 연습 횟수를 보고 맞춤 훈련을 열거나 잠근다.
+// 데이터베이스에 닿지 못해도 연습은 할 수 있어야 하므로 실패하면 잠근 채로 둔다.
+async function refreshCustomMode() {
+  let n;
+  try {
+    n = await countSessions();
+  } catch (e) {
+    console.error('연습 횟수 불러오기 실패:', e);
+    return;
+  }
+  const open = n >= CUSTOM_UNLOCK_SESSIONS;
+  customRadio.disabled = !open;
+  customLabel.classList.toggle('is-off', !open);
+  if (!open) {
+    modeHint.textContent = `맞춤 훈련은 진단 ${CUSTOM_UNLOCK_SESSIONS}판을 저장하면 열립니다 (지금 ${n}판)`;
+  } else if (mode === 'basic') {
+    modeHint.textContent = '맞춤 훈련이 열렸습니다';
+  }
+}
+
+async function startCustomPractice() {
+  modeHint.textContent = '누적 기록으로 맞춤 문장을 고르는 중…';
+  try {
+    const [errors, times] = await Promise.all([loadCumulativeErrors(), loadCumulativeJamoTimes()]);
+    const weak = cumulativeWeakJamo(errors, times, 3);
+    const opts = { maxChars: CUSTOM_ROUND_CHARS };
+    let set = buildPracticeSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak,
+                               { ...opts, exclude: lastCustomSentences });
+    // 지난 문장을 빼서 후보가 바닥나면 빼지 않고 다시 고른다
+    if (set.sentences.length === 0) {
+      set = buildPracticeSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak, opts);
+    }
+    if (set.sentences.length === 0) throw new Error('맞춤 문장을 만들 취약 자모가 없습니다');
+
+    lastCustomSentences = set.sentences;
+    modeHint.textContent = `누적 취약 자모 ${weak.join(' ')}`;
+    startPractice(set.sentences);
+  } catch (e) {
+    console.error('맞춤 훈련 준비 실패:', e);
+    modeHint.textContent = '맞춤 문장을 만들지 못해 기본 진단으로 연습합니다';
+    startPractice();
+  }
+}
+
+// 새 라운드는 고른 모드를 따른다.
+function startNewRound() {
+  if (mode === 'custom') startCustomPractice();
+  else startPractice();
+}
+
+for (const radio of document.querySelectorAll('input[name="mode"]')) {
+  radio.addEventListener('change', () => {
+    mode = radio.value;
+    if (mode === 'basic') modeHint.textContent = '';
+    startNewRound();
+  });
 }
 
 // ── 화면 이동 버튼 ───────────────────────────────────────
@@ -549,7 +624,7 @@ function goPractice() {
 for (const btn of document.querySelectorAll('[data-go]')) {
   btn.addEventListener('click', () => {
     const to = btn.dataset.go;
-    if (to === 'practice-new') startPractice();
+    if (to === 'practice-new') startNewRound();
     else if (to === 'practice') goPractice();
     else show(to);
   });
@@ -557,6 +632,7 @@ for (const btn of document.querySelectorAll('[data-go]')) {
 
 // ── 시작 ─────────────────────────────────────────────────
 startPractice();
+refreshCustomMode();
 
 // ─────────────────────────────────────────────────────────────
 // 기록 화면 그리기

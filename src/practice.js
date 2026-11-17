@@ -24,6 +24,26 @@ export function pickWeakJamo(errorTally, slowRanked, count = 3) {
     .map(([jamo]) => jamo);
 }
 
+// ── 누적 기록으로 취약 자모 고르기 (맞춤 훈련 모드) ────────────
+//
+// 한 라운드가 아니라 지금까지 쌓인 기록 전체로 고른다. 한 판의 오타는 우연일 수 있지만
+// 여러 판에 걸쳐 반복되는 오타는 손에 밴 습관이기 때문이다.
+// 점수 매기는 법은 한 라운드 때와 같다 (pickWeakJamo).
+//   errors    : 데이터베이스의 오류 쌍 [{ from, count }]  (from = 쳤어야 할 자모, 덧침은 누른 키)
+//   jamoTimes : 자모별 평균 입력 시간 [{ key, avg }]
+export function cumulativeWeakJamo(errors, jamoTimes, count = 3) {
+  const tally = new Map();
+  for (const { from, count: n } of errors) {
+    if (!from) continue;
+    tally.set(from, (tally.get(from) ?? 0) + n);
+  }
+  return pickWeakJamo(tally, jamoTimes, count);
+}
+
+// 맞춤 훈련은 진단 기록이 이만큼 쌓여야 열린다.
+// 한두 판으로는 취약 자모가 그 판의 문장에 좌우되어 믿기 어렵다.
+export const CUSTOM_UNLOCK_SESSIONS = 3;
+
 // 단어(또는 문장) 하나에 취약 자모가 몇 번 들어 있는지 센다. 이것이 배낭 문제의 '가치' 다.
 export function wordValue(word, weakJamo) {
   const weak = new Set(weakJamo);
@@ -225,17 +245,21 @@ function templateCombos(filled) {
   return combos;
 }
 
+// exclude 에 든 문장은 후보에서 뺀다. 맞춤 훈련을 연달아 할 때 지난 라운드와
+// 똑같은 문장이 나오지 않게 하려는 것이다 (배낭은 같은 입력이면 늘 같은 답을 낸다).
 export function buildPracticeSet(sentences, templates, categories, weakJamo,
-                                 { maxChars = 50, templateChars = 22 } = {}) {
+                                 { maxChars = 50, templateChars = 22, exclude = [] } = {}) {
   if (weakJamo.length === 0) return { sentences: [], value: 0 };
+  const skip = new Set(exclude);
 
   const corpus = sentences
+    .filter(text => !skip.has(text))
     .map(text => ({ text, weight: charCount(text), value: wordValue(text, weakJamo) }))
     .filter(it => it.value > 0 && it.weight <= maxChars);
 
   const filled = templates
     .map(t => fillTemplate(t, categories, weakJamo, templateChars))
-    .filter(f => f && f.value > 0 && f.weight <= maxChars);
+    .filter(f => f && !skip.has(f.text) && f.value > 0 && f.weight <= maxChars);
 
   let best = { value: 0, sentences: [] };
   for (const combo of templateCombos(filled)) {
