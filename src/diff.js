@@ -135,44 +135,102 @@ export function diffKeys(target, typed) {
   return { distance: d[target.length][typed.length], ops };
 }
 
-// ── 치는 내내 오타를 기록하기 ────────────────────────────
+// ── 끝이 열린 정렬 ───────────────────────────────────────
 //
-// 오타를 내면 보통 백스페이스로 지우고 다시 친다. 최종 입력만 보면 흔적이 없어
-// '오타 0곳' 이 된다. 처음에는 '입력이 줄어드는 순간' 을 잡아 건졌는데,
-// 줄어들지 않으면서 고쳐지는 길이 여럿 있었다.
-//   값씨 -> 값싸  (글자를 골라 덮어쓰면 길이가 그대로)
-//   값ㅆ -> 값싸  (조합이 이어지며 오히려 늘어난다)
-// 한글은 조합 중에 글자가 통째로 바뀌기도 해서 '줄어듦' 이라는 신호 자체를
-// 믿을 수 없다.
+// 치는 도중의 입력은 제시 문장의 '앞부분' 하고만 견줘야 한다. 그런데 어디까지가
+// 앞부분인지를 미리 정해 두면 틀린다. 두 번 그렇게 틀렸다.
+//   문장 전체와 견줌    -> 안 친 뒷부분까지 맞추려다 짝이 흔들려
+//                          '로 -> 루' 하나가 ㅓ>ㅜ, ㅡ>ㅜ, ㅗ>ㅜ 로 세 번 적혔다
+//   입력 길이만큼 자름  -> 하나를 빠뜨리면 그 뒤로 짝이 한 칸씩 밀려
+//                          '가ㅏㅇ 운동장' 의 뒤 글자가 전부 덧침이 되었다
 //
-// 그래서 지우는 순간을 노리는 대신, 칠 때마다 맞춰 보고 본 적 없는 오타면 적어 둔다.
-// 한 번이라도 틀렸으면 기록이 남으므로 그 뒤에 어떻게 고치든 상관없다.
+// 그래서 끝을 정하지 않고, 입력과 가장 잘 맞는 지점까지를 스스로 고른다.
+// d[i][m] 은 '제시 앞 i개를 입력 전체로 바꾸는 최소 횟수' 이므로, 표를 문장 전체로
+// 한 번 채운 뒤 마지막 열에서 가장 작은 칸을 고르면 된다. 계산량은 diffKeys 와 같다.
 //
-// 빠뜨림(DELETE)은 적지 않는다. 치는 도중에는 아직 안 친 뒷부분이 전부
-// 빠뜨림으로 보이기 때문이다. 그것은 문장을 다 치고 나서 따로 센다.
-//
-// seen 의 열쇠는 '제시 문장의 몇 번째 자리에서 무엇을 무엇으로' 다.
-// 같은 자리에서 같은 실수를 되풀이해도 한 번으로 센다. 백스페이스를 눌렀다
-// 다시 치는 동안 같은 오타가 여러 번 보이는 것을 막으려는 것이다.
-//
-// 비교할 때는 제시 문장을 '지금까지 친 만큼' 잘라 쓴다.
-// 문장 전체와 맞추면 아직 치지 않은 뒷부분이 통째로 빠뜨림이 되고,
-// 그 틈에서 같은 오타가 글자를 칠 때마다 다른 자모 쌍으로 잡힌다.
-// (로 -> 루 하나를 ㅓ>ㅜ, ㅡ>ㅜ, ㅗ>ㅜ 로 세 번 적은 적이 있다.)
-// 잘라서 맞추면 뒷부분이 사라져 정렬이 흔들리지 않는다.
-export function trackErrors(seen, fullTarget, typedKeys) {
-  const { ops } = diffKeys(fullTarget.slice(0, typedKeys.length), typedKeys);
-  for (const op of ops) {
-    if (op.type === DELETE) continue;
-    const key = `${op.targetIndex}:${op.from ?? ''}>${op.to ?? ''}`;
-    if (!seen.has(key)) seen.set(key, op);
+// 반환하는 reached 는 '제시 문장의 몇 번째 키까지 쳤다고 보는가' 다.
+export function openDiff(target, typed) {
+  const d = buildTable(target, typed);
+  const m = typed.length;
+
+  let reached = 0;
+  for (let i = 1; i <= target.length; i++) {
+    // 동점이면 더 많이 진행한 쪽을 고른다. 그러면 '잘못 쳤다' 나 '빠뜨렸다' 로 읽히고,
+    // 반대로 고르면 '더 쳤다' 로 읽힌다. 값씨 의 ㅣ 가 ㅏ>ㅣ 가 아니라 덧침(ㅣ) 로 잡히는
+    // 식이다. 4차시에 정한 '교체를 먼저 인정한다' 와 같은 방향이다.
+    if (d[i][m] <= d[reached][m]) reached = i;
   }
-  return seen;
+
+  // traceBack 은 (제시 길이, 입력 길이) 칸에서 되짚기 시작한다.
+  // 제시를 reached 까지만 넘기면 그 칸에서 시작한다. 표의 i 번째 줄은 제시의 앞 i개만
+  // 보고 채워지므로 문장 전체로 채운 표를 그대로 써도 된다.
+  const ops = traceBack(d, target.slice(0, reached), typed)
+    .map(op => ({ ...op, category: classify(op) }));
+  return { distance: d[reached][m], ops, reached };
 }
 
-// 문장을 다 치고 나서, 끝내 빠뜨린 자모만 센다.
-export function missingErrors(targetKeys, typedKeys) {
-  return diffKeys(targetKeys, typedKeys).ops.filter(op => op.type === DELETE);
+// ── 치는 동안의 오타 추적 ─────────────────────────────────
+//
+// 오타를 내면 보통 지우고 다시 친다. 최종 입력만 보면 흔적이 없으므로
+// 치는 동안 무언가를 적어 두어야 한다. 세 번째로 고친 방식이다.
+//
+//   1) 입력이 줄어드는 순간에 건짐  -> 덮어쓰기처럼 길이가 안 줄면서 고치는 길을 놓침
+//   2) 칠 때마다 판정해 적어 둠    -> 치는 도중의 판정은 뒤에 올 키를 봐야 확정되는데,
+//                                    잠정적인 판정까지 영영 남겨 버림
+//   3) 지워지는 순간에만 판정      <- 지금 방식
+//
+// 키가 입력창에 남아 있는 동안은 판정하지 않는다. 남아 있는 키는 문장을 마칠 때
+// 최종 입력으로 한 번에 견주면 되기 때문이다. 판정이 필요한 것은 '사라지는 키' 뿐이다.
+// 사라지면 마지막에 볼 수 없으니, 사라지기 직전 입력으로 그 순간 판정해 둔다.
+//
+// 사라진 키는 '길이가 줄었는가' 가 아니라 '앞에서부터 같은 부분이 어디까지인가' 로
+// 알아챈다. 값씨 -> 값싸 처럼 길이가 그대로여도 ㅣ 가 사라진 것을 잡는다.
+//
+// 기록의 열쇠는 '제시 문장의 몇 번째 자리에서 무엇을 무엇으로' 다.
+// 같은 자리의 같은 실수는 한 번으로 센다. 지운 때 적은 것과 마지막에 견준 것이
+// 겹쳐도 한 번이 된다.
+function commonPrefixLength(a, b) {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}
+
+export function createErrorTracker(targetKeys) {
+  const seen = new Map();
+  let prev = [];
+
+  const remember = (op) => {
+    const key = `${op.targetIndex}:${op.from ?? ''}>${op.to ?? ''}`;
+    if (!seen.has(key)) seen.set(key, op);
+  };
+
+  return {
+    // 입력이 바뀔 때마다 부른다. judge 가 false 면 직전 입력만 갈아 두고 판정은 건너뛴다.
+    update(typedKeys, { judge = true } = {}) {
+      const kept = commonPrefixLength(prev, typedKeys);   // 이만큼은 그대로 남았다
+      if (judge && prev.length > kept) {                  // 그 뒤가 사라졌다
+        for (const op of openDiff(targetKeys, prev).ops) {
+          if (op.typedIndex >= kept) remember(op);        // 사라진 자리의 오타만
+        }
+      }
+      prev = typedKeys;
+    },
+
+    // 문장을 마칠 때 부른다. 남아 있는 키는 여기서 한 번에 판정한다.
+    //
+    // 엔터로 마쳤으면 다 쳤다는 뜻이므로 문장 끝까지 견주고, 덜 친 끝은 빠뜨림이다.
+    // '그만하고 결과 보기' 로 끊었으면(partial) 친 데까지만 견준다. 이때도 입력 길이로
+    // 자르면 같은 밀림이 생기므로 끝이 열린 정렬을 쓴다.
+    // targetLength 는 정확도의 분모로 쓸 '제시에서 친 데까지의 키 수' 다.
+    finish(typedKeys, { partial = false } = {}) {
+      const result = partial ? openDiff(targetKeys, typedKeys) : diffKeys(targetKeys, typedKeys);
+      for (const op of result.ops) remember(op);
+      return {
+        ops: [...seen.values()],
+        targetLength: partial ? result.reached : targetKeys.length,
+      };
+    },
+  };
 }
 
 // ── 집계 ─────────────────────────────────────────────────

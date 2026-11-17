@@ -5,7 +5,7 @@
 
 import { judge, recordKeyTimes, keyDurations, averageByJamo } from './typing.js';
 import { decomposeToKeys } from './hangul.js';
-import { diffKeys, trackErrors, missingErrors, countErrorPairs, countByType,
+import { createErrorTracker, countErrorPairs, countByType,
          countByKey, accuracy, TYPE_LABEL } from './diff.js';
 import { isJamo } from './hangul.js';
 import { keyboardLayout } from './keyboard.js';
@@ -58,7 +58,7 @@ let elapsedMs   = 0;    // 앞서 재 둔 시간의 합 (라운드 전체)
 let timerId     = null;
 let keyTimes    = [];   // 키가 화면에 나타난 시각 (문장마다 새로 시작)
 let typedKeys   = [];   // 지금 문장에서 친 내용을 키 단위로 쪼갠 것
-let seenErrors  = new Map();  // 이 문장에서 본 오타. 고쳐도 기록은 남는다
+let tracker     = null;       // 이 문장의 오타 추적기. 지워진 키의 오타를 기억해 둔다
 let pendingEnter = false;     // 조합 중에 누른 엔터. 조합이 끝나면 이어서 처리한다
 let sentenceDone = false;     // 지금 문장을 이미 담았는지
 
@@ -156,10 +156,10 @@ function stopTimer() {
 function loadSentence() {
   keyTimes = [];        // 자모 입력 시간은 문장마다 새로 잰다
   typedKeys = [];
-  seenErrors = new Map();
   pendingEnter = false;
   sentenceDone = false;
   renderTarget(round.sentences[round.index]);
+  tracker = createErrorTracker(decomposeToKeys(targetChars.join('')));
   inputEl.value = '';
   inputEl.classList.remove('is-over');
   document.getElementById('ime-warning').hidden = true;
@@ -181,6 +181,7 @@ function countNotHangul(text) {
 // 뽑혀 엉뚱한 맞춤 연습 문장이 만들어진다.
 // partial 이면 '치다 만 문장' 이라는 뜻이다. 친 데까지만 제시 문장과 견준다.
 // 안 친 뒷부분까지 넣으면 그게 전부 빠뜨림으로 쌓여 통계가 망가진다.
+// 어디까지 쳤는지는 입력 길이로 정하지 않는다. 앞에서 하나를 빠뜨리면 한 칸 밀리기 때문이다.
 function collectSentence({ partial = false } = {}) {
   // 마지막 문장에서 엔터를 누르면 nextSentence 가 담고 곧바로 showRoundResult 로
   // 넘어가는데, 그때 입력창에는 그 문장이 그대로 남아 있어 한 번 더 담길 뻔했다.
@@ -189,15 +190,14 @@ function collectSentence({ partial = false } = {}) {
   if (inputEl.value === '') return;
   if (countNotHangul(inputEl.value) >= 3) return;
 
-  const inputKeys  = decomposeToKeys(inputEl.value);
-  const fullTarget = decomposeToKeys(targetChars.join(''));
-  const targetKeys = partial ? fullTarget.slice(0, inputKeys.length) : fullTarget;
+  const inputKeys = decomposeToKeys(inputEl.value);
 
-  // 치는 동안 본 오타(고쳐서 사라진 것 포함) + 끝내 빠뜨린 자모.
-  // 빠뜨림은 치는 도중에는 '아직 안 친 뒷부분' 과 구별할 수 없어 여기서 센다.
-  round.ops.push(...seenErrors.values(), ...missingErrors(targetKeys, inputKeys));
+  // 지워서 사라진 오타(치는 동안 적어 둔 것) + 남아 있는 입력의 오타.
+  // 치다 만 문장이면 친 데까지만 견주고, 그때 '어디까지 쳤는지' 도 추적기가 정한다.
+  const { ops, targetLength } = tracker.finish(inputKeys, { partial });
+  round.ops.push(...ops);
   round.durations.push(...keyDurations(typedKeys, keyTimes));
-  round.targetKeyCount += targetKeys.length;
+  round.targetKeyCount += targetLength;
   round.typedKeyCount  += inputKeys.length;
   round.texts.push({ target: targetChars.join(''), typed: inputEl.value });
   sentenceDone = true;
@@ -231,12 +231,10 @@ inputEl.addEventListener('input', () => {
   // 다음 자모의 입력 시간에 섞이지 않는다.
   typedKeys = recordKeyTimes(inputEl.value, keyTimes, currentElapsed());
 
-  // 오타를 내면 보통 지우고 다시 친다. 최종 입력만 보면 흔적이 없어 '오타 0곳'이
-  // 된다. 그래서 칠 때마다 맞춰 보고 본 적 없는 오타를 적어 둔다.
-  // 한 번이라도 틀렸으면 기록이 남으므로 그 뒤에 어떻게 고치든 상관없다.
-  if (countNotHangul(inputEl.value) < 3) {
-    trackErrors(seenErrors, decomposeToKeys(targetChars.join('')), typedKeys);
-  }
+  // 오타를 내면 보통 지우고 다시 친다. 최종 입력만 보면 흔적이 없으므로
+  // 키가 사라지는 순간 그 키의 오타를 적어 둔다(diff.js 의 createErrorTracker).
+  // 한/영 전환을 안 하고 친 동안은 판정하지 않되, 직전 입력은 계속 갈아 둔다.
+  tracker.update(typedKeys, { judge: countNotHangul(inputEl.value) < 3 });
 
   paintTarget();
   updateProgress();
