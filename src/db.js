@@ -85,6 +85,20 @@ export async function loadSessions(limit = 20) {
   return data;
 }
 
+// 최근 연습 기록의 문장. 맞춤 훈련을 열 때 '최근에 쓴 문장' 을 되살리는 데 쓴다.
+//
+// 기본 진단 사이에 맞춤 라운드가 끼어 있을 수 있어서 맞춤 라운드 3개를 찾으려면
+// 몇 개 더 훑어야 한다. 문장 칸만 가져와서 가볍다. RLS 가 내 줄만 돌려준다.
+export async function loadRecentSessionSentences(limit = 15) {
+  const { data, error } = await supabase
+    .from('practice_sessions')
+    .select('sentences')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
 // 누적 취약 자모. 여러 회차에 흩어진 오류 쌍을 자모 쌍별로 합친다.
 //
 // 데이터베이스에 합계를 따로 저장해 두는 방법도 있지만, 그러면 저장할 때와

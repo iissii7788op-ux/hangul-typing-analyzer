@@ -2,7 +2,8 @@
 import {
   pickWeakJamo, wordValue, buildPracticeSentence, charCount,
   attachJosa, parseTemplate, fillTemplate, buildPracticeSet,
-  cumulativeWeakJamo, CUSTOM_UNLOCK_SESSIONS,
+  cumulativeWeakJamo, CUSTOM_UNLOCK_SESSIONS, nextCustomSet, RECENT_ROUNDS,
+  recentRoundsFromSessions,
 } from './practice.js';
 import { decomposeToKeys } from './hangul.js';
 import { WORDS } from './words.js';
@@ -185,6 +186,110 @@ checkTrue('맞춤 라운드는 80자 안에서 4문장 이상',
 checkTrue('지난 라운드 문장은 다시 나오지 않는다',
           둘째판.sentences.length > 0 && 둘째판.sentences.every(s => !첫판.sentences.includes(s)),
           `-> ${둘째판.sentences.join(' / ')}`);
+
+// ── 10) 같은 문장이 번갈아 되풀이되지 않게 ───────────────────
+console.log('\n[최근 라운드 빼기]');
+
+// 취약 자모가 그대로인 채로 맞춤 라운드를 연달아 연다. 앱이 하는 일과 같다.
+function 연달아(weak, 횟수, 문장들 = SENTENCES, 틀들 = TEMPLATES, 범주 = CATEGORIES) {
+  let recent = []; const 라운드들 = [];
+  for (let i = 0; i < 횟수; i++) {
+    const r = nextCustomSet(문장들, 틀들, 범주, weak, recent, { maxChars: 80 });
+    라운드들.push(r.set.sentences); recent = r.recentRounds;
+  }
+  return { 라운드들, recent };
+}
+const 세트키 = r => [...r].sort().join('|');
+const 취약 = ['ㅗ', 'ㄹ', 'ㅏ'];
+
+// 바로 앞 라운드만 뺐더니 두 세트가 번갈아 나왔다(8라운드 중 서로 다른 세트 2개).
+const 여덟 = 연달아(취약, 8).라운드들;
+checkTrue('8라운드에 서로 다른 세트가 4개 이상 (예전에는 2개)',
+          new Set(여덟.map(세트키)).size >= RECENT_ROUNDS + 1,
+          `-> ${new Set(여덟.map(세트키)).size}개`);
+checkTrue('한 문장은 최근 라운드 수만큼 쉬었다가 다시 나온다',
+          여덟.every((r, i) => 여덟.slice(Math.max(0, i - RECENT_ROUNDS), i)
+                                  .every(앞 => r.every(s => !앞.includes(s)))));
+checkTrue('두 라운드 전 세트가 그대로 돌아오지 않는다 (번갈아 반복 방지)',
+          세트키(여덟[2]) !== 세트키(여덟[0]) && 세트키(여덟[3]) !== 세트키(여덟[1]));
+
+// 처음 라운드는 아무것도 안 뺀 것과 같아야 한다 (몰림이 떨어지지 않는다)
+check('첫 라운드는 예전과 같은 문장',
+      연달아(취약, 1).라운드들[0],
+      buildPracticeSet(SENTENCES, TEMPLATES, CATEGORIES, 취약, { maxChars: 80 }).sentences);
+
+checkTrue('기억하는 라운드는 최근 몇 개뿐이다 (끝없이 쌓이지 않는다)',
+          연달아(취약, 10).recent.length === RECENT_ROUNDS, `-> ${연달아(취약, 10).recent.length}개`);
+
+// 후보가 바닥나면 빼지 않고 다시 고르며, 기억도 새로 시작한다
+const 작은문장 = ['형은 요리를 했다', '여동생이 여행을 갔다', '효도를 했다'];
+const 작은 = 연달아(['ㅕ', 'ㅛ'], 4, 작은문장, [], {});
+checkTrue('후보가 바닥나도 문장은 계속 나온다',
+          작은.라운드들.every(r => r.length > 0), `-> ${작은.라운드들.map(r => r.length)}`);
+checkTrue('바닥나면 기억을 비우고 다시 시작한다',
+          작은.recent.length >= 1 && 작은.recent.length <= RECENT_ROUNDS);
+
+// 취약 자모가 없으면 문장도 없고, 그 빈 라운드를 기억하지는 않는다
+const 없음 = nextCustomSet(SENTENCES, TEMPLATES, CATEGORIES, [], [['지난 문장']], { maxChars: 80 });
+check('취약 자모가 없으면 빈 라운드', 없음.set.sentences, []);
+check('빈 라운드는 기억하지 않는다', 없음.recentRounds, [['지난 문장']]);
+
+// ── 11) 새로고침해도 최근 라운드를 DB 기록에서 되살린다 ──────
+console.log('\n[DB 기록에서 최근 맞춤 라운드 되살리기]');
+
+// DB 에는 라운드마다 [{ target, typed }] 꼴로 문장이 저장된다. 최신 기록이 앞에 온다.
+const 기록 = 문장들 => ({ sentences: 문장들.map(target => ({ target, typed: target })) });
+const 기본문장 = ['기본 하나', '기본 둘', '기본 셋'];
+
+// 맞춤 라운드와 기본 진단 라운드가 섞여 저장된 모양 (최신이 앞)
+const 섞인기록 = [
+  기록(기본문장),                    // 최신: 기본 진단
+  기록(['맞춤 D1', '맞춤 D2']),      // 맞춤
+  기록(기본문장),                    // 기본 진단
+  기록(['맞춤 C1', '맞춤 C2']),      // 맞춤
+  기록(['맞춤 B1']),                 // 맞춤
+  기록(['맞춤 A1', '맞춤 A2']),      // 맞춤 (3개를 넘는다)
+];
+
+const 되살림 = recentRoundsFromSessions(섞인기록, 기본문장);
+check('기본 진단은 건너뛰고 최근 맞춤 라운드만 담는다',
+      되살림, [['맞춤 B1'], ['맞춤 C1', '맞춤 C2'], ['맞춤 D1', '맞춤 D2']]);
+check('오래된 것이 앞에 온다 (nextCustomSet 이 기대하는 순서)',
+      되살림.map(r => r[0]), ['맞춤 B1', '맞춤 C1', '맞춤 D1']);
+check('기억하는 개수를 넘으면 가장 최근 것만', 되살림.length, RECENT_ROUNDS);
+check('기본 진단만 있으면 빈 목록', recentRoundsFromSessions([기록(기본문장), 기록(기본문장)], 기본문장), []);
+check('기록이 없으면 빈 목록', recentRoundsFromSessions([], 기본문장), []);
+
+// 저장된 모양이 깨져 있어도 앱이 죽지 않는다 (null, 문자열, 문장 없는 줄)
+check('깨진 기록은 건너뛴다',
+      recentRoundsFromSessions([
+        { sentences: null }, { sentences: '문자열' }, { sentences: [] }, {},
+        { sentences: [{ typed: 'target 없음' }, null, { target: '' }] },
+        기록(['맞춤 정상']),
+      ], 기본문장),
+      [['맞춤 정상']]);
+
+// 가장 중요한 것: 새로고침한 뒤 첫 맞춤 라운드가 이전에 한 라운드와 겹치지 않아야 한다.
+// 라운드를 세 번 열고 저장한 것처럼 기록을 만든 뒤, 기억이 사라진 새 페이지에서 이어 본다.
+const 새로고침 = (() => {
+  const 취약자모 = ['ㅗ', 'ㄹ', 'ㅏ'];
+  let recent = []; const 저장된 = [];                // 저장된 기록: 최신이 앞
+  for (let i = 0; i < 3; i++) {
+    const r = nextCustomSet(SENTENCES, TEMPLATES, CATEGORIES, 취약자모, recent, { maxChars: 80 });
+    recent = r.recentRounds; 저장된.unshift(기록(r.set.sentences));
+  }
+  // 새로고침: 기억(recent)은 사라지고 DB 기록만 남는다
+  const 잃어버린뒤 = nextCustomSet(SENTENCES, TEMPLATES, CATEGORIES, 취약자모, [], { maxChars: 80 });
+  const 되살린 = recentRoundsFromSessions(저장된, ['기본'], RECENT_ROUNDS);
+  const 이어서 = nextCustomSet(SENTENCES, TEMPLATES, CATEGORIES, 취약자모, 되살린, { maxChars: 80 });
+  const 예전문장 = 저장된.flatMap(x => x.sentences.map(t => t.target));
+  return { 겹침없이: 이어서.set.sentences.every(t => !예전문장.includes(t)),
+           기억없이는겹침: 잃어버린뒤.set.sentences.some(t => 예전문장.includes(t)),
+           문장수: 이어서.set.sentences.length };
+})();
+checkTrue('기억을 잃으면 예전 문장이 그대로 나온다 (고치기 전의 문제)', 새로고침.기억없이는겹침);
+checkTrue('DB 기록으로 되살리면 새로고침 뒤에도 겹치지 않는다', 새로고침.겹침없이,
+          `-> ${새로고침.문장수}문장`);
 
 console.log(`\n${pass}/${total} 통과`);
 process.exit(pass === total ? 0 : 1);

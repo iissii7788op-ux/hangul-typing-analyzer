@@ -9,11 +9,11 @@ import { createErrorTracker, countErrorPairs, countByType,
          countByKey, accuracy, TYPE_LABEL } from './diff.js';
 import { isJamo } from './hangul.js';
 import { keyboardLayout } from './keyboard.js';
-import { pickWeakJamo, buildPracticeSet, cumulativeWeakJamo,
-         CUSTOM_UNLOCK_SESSIONS } from './practice.js';
+import { pickWeakJamo, buildPracticeSet, cumulativeWeakJamo, nextCustomSet,
+         recentRoundsFromSessions, RECENT_ROUNDS, CUSTOM_UNLOCK_SESSIONS } from './practice.js';
 import { SENTENCES as PRACTICE_SENTENCES } from './sentences.js';
 import { TEMPLATES, CATEGORIES } from './templates.js';
-import { saveSession, loadSessions, loadCumulativeErrors,
+import { saveSession, loadSessions, loadCumulativeErrors, loadRecentSessionSentences,
          countSessions, loadCumulativeJamoTimes } from './db.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
@@ -551,7 +551,8 @@ function goPractice() {
 // 취약 자모를 골라 그 자모가 몰린 문장으로 연습한다.
 // 진단 기록이 CUSTOM_UNLOCK_SESSIONS 판 쌓여야 열린다.
 let mode = 'basic';
-let lastCustomSentences = [];   // 지난 맞춤 라운드 문장. 다음 라운드에서는 뺀다
+let recentCustomRounds = [];   // 최근 맞춤 라운드들의 문장. 다음 라운드에서는 뺀다(practice.js 의 RECENT_ROUNDS 만큼)
+let recentSeeded = false;      // DB 기록에서 최근 라운드를 되살렸는지. 페이지를 열고 한 번만 읽는다
 
 // 맞춤 라운드 하나의 길이. 기본 진단(5문장)과 비슷하게 5~6문장이 나오는 길이다.
 const CUSTOM_ROUND_CHARS = 80;
@@ -590,21 +591,35 @@ async function startCustomPractice() {
   const myRequest = roundRequest;
   modeHint.textContent = '누적 기록으로 맞춤 문장을 고르는 중…';
   try {
-    const [errors, times] = await Promise.all([loadCumulativeErrors(), loadCumulativeJamoTimes()]);
+    const [errors, times, saved] = await Promise.all([
+      loadCumulativeErrors(), loadCumulativeJamoTimes(),
+      // 페이지를 새로 열면 메모리의 기억이 사라지므로, 처음 한 번은 DB 기록에서 되살린다.
+      // 읽기에 실패해도 맞춤 훈련은 시작되어야 하므로 여기서 오류를 삼키고 null 로 둔다.
+      // 그러면 seeded 가 켜지지 않아 다음에 다시 시도한다.
+      recentSeeded ? null : loadRecentSessionSentences().catch(e => {
+        console.error('최근 맞춤 라운드 불러오기 실패:', e);
+        return null;
+      }),
+    ]);
     if (myRequest !== roundRequest) return;   // 그 사이 다른 라운드가 요청됐다
-    const weak = cumulativeWeakJamo(errors, times, 3);
-    const opts = { maxChars: CUSTOM_ROUND_CHARS };
-    let set = buildPracticeSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak,
-                               { ...opts, exclude: lastCustomSentences });
-    // 지난 문장을 빼서 후보가 바닥나면 빼지 않고 다시 고른다
-    if (set.sentences.length === 0) {
-      set = buildPracticeSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak, opts);
-    }
-    if (set.sentences.length === 0) throw new Error('맞춤 문장을 만들 취약 자모가 없습니다');
 
-    lastCustomSentences = set.sentences;
+    // 되살린 것은 이번 페이지에서 이미 연 라운드보다 오래된 것이므로 앞에 붙인다.
+    // 끝까지 치지 않아 저장되지 않은 라운드는 DB 에 없고 메모리에만 있어서 둘을 합친다.
+    if (saved) {
+      recentCustomRounds = [...recentRoundsFromSessions(saved, SENTENCES), ...recentCustomRounds]
+        .slice(-RECENT_ROUNDS);
+      recentSeeded = true;
+    }
+    const weak = cumulativeWeakJamo(errors, times, 3);
+    // 바로 앞 라운드만 빼면 두 세트가 번갈아 나온다. 최근 몇 라운드를 함께 뺀다.
+    // 후보가 바닥나면 빼지 않고 다시 고르는 것도 이 함수 안에서 한다.
+    const next = nextCustomSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak,
+                               recentCustomRounds, { maxChars: CUSTOM_ROUND_CHARS });
+    if (next.set.sentences.length === 0) throw new Error('맞춤 문장을 만들 취약 자모가 없습니다');
+
+    recentCustomRounds = next.recentRounds;
     modeHint.textContent = `누적 취약 자모 ${weak.join(' ')}`;
-    startPractice(set.sentences);
+    startPractice(next.set.sentences);
   } catch (e) {
     console.error('맞춤 훈련 준비 실패:', e);
     if (myRequest !== roundRequest) return;

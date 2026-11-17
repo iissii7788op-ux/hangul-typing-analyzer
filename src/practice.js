@@ -276,3 +276,75 @@ export function buildPracticeSet(sentences, templates, categories, weakJamo,
   }
   return best;
 }
+
+// ── 맞춤 라운드를 연달아 열 때 문장이 되풀이되지 않게 ──────────
+//
+// 배낭은 입력이 같으면 늘 같은 답을 낸다. 취약 자모가 그대로이면 맞춤 훈련을 열 때마다
+// 똑같은 문장이 나오므로, 이미 나온 문장을 후보에서 빼고 고른다.
+//
+// 처음에는 '바로 앞 라운드' 만 뺐는데 그러면 두 세트가 번갈아 나왔다.
+//   1라운드 -> S1,  2라운드(S1 뺌) -> S2,  3라운드(S2 뺌) -> S1 이 다시 가장 좋은 답
+// 같은 취약 자모로 8라운드를 만들어 보니 서로 다른 세트가 2개뿐이었다.
+//
+// 그렇다고 지금까지 나온 문장을 전부 빼면 점점 덜 좋은 문장만 남는다. 12라운드를 돌려
+// 보니 취약 자모가 든 비율이 21% 에서 11% 로 반 토막이 났다. 그래서 '최근 몇 라운드'
+// 만 뺀다. 3라운드면 한 문장이 18문장쯤 쉬었다가 돌아오고(세트 4개가 돈다),
+// 비율은 21% 에서 17% 로 조금만 떨어진다.
+export const RECENT_ROUNDS = 3;
+
+// recentRounds 는 최근 라운드들의 문장 목록([[문장, ...], ...]) 이다.
+// 다음 라운드와, 갱신된 recentRounds 를 돌려준다. 호출하는 쪽이 이 값을 들고 있다가
+// 다음에 다시 넘긴다. 상태를 안에 숨기지 않아야 같은 입력에 같은 답이 나와 테스트할 수 있다.
+export function nextCustomSet(sentences, templates, categories, weakJamo, recentRounds, opts = {}) {
+  // 취약 자모가 없으면 고를 문장이 없는 것이지 후보가 바닥난 것이 아니다.
+  // 둘을 헷갈려 기억을 비우면 안 되므로 먼저 걸러 낸다.
+  if (weakJamo.length === 0) return { set: { sentences: [], value: 0 }, recentRounds };
+
+  let recent = recentRounds;
+  let set = buildPracticeSet(sentences, templates, categories, weakJamo,
+                             { ...opts, exclude: recent.flat() });
+
+  // 뺐더니 후보가 바닥나면 빼지 않고 다시 고르고, 기억도 새로 시작한다.
+  // (기억을 그대로 두면 다음 라운드도 같은 이유로 바닥난다.)
+  if (set.sentences.length === 0 && recent.length > 0) {
+    recent = [];
+    set = buildPracticeSet(sentences, templates, categories, weakJamo, opts);
+  }
+
+  // 그래도 문장이 없으면(취약 자모가 든 문장이 아예 없을 때) 열리지 않은 라운드이므로 기억하지 않는다.
+  if (set.sentences.length === 0) return { set, recentRounds: recent };
+
+  return { set, recentRounds: [...recent, set.sentences].slice(-RECENT_ROUNDS) };
+}
+
+// ── 새로고침해도 최근 라운드를 DB 기록에서 되살린다 ────────────
+//
+// '최근에 어떤 문장을 썼는가' 를 변수에만 두면 페이지를 새로 열 때마다 사라져서,
+// 맞춤 훈련을 열면 늘 첫 세트부터 시작한다. 로그인은 '내가 누구인가' 만 지켜 줄 뿐
+// 이 목록과는 무관하다.
+//
+// 그런데 DB 에는 이미 라운드마다 문장이 저장된다(practice_sessions.sentences).
+// 새로 저장할 것 없이 그 기록에서 되살리면 다른 기기에서 열어도 이어진다.
+//
+// sessions 는 DB 에서 읽은 기록으로 최신이 앞에 온다. 각 줄의 sentences 는
+// [{ target, typed }] 꼴이다. basicSentences 는 기본 진단의 고정 문장이다.
+// 기본 진단 라운드는 건너뛴다. 건너뛰지 않으면 진단을 몇 판 하는 사이 맞춤 라운드를 잊는다.
+//
+// 돌려주는 값은 nextCustomSet 이 기대하는 모양(오래된 것이 앞)이다.
+// 저장된 모양이 깨져 있어도 앱이 죽지 않아야 하므로 믿지 않고 하나씩 거른다.
+export function recentRoundsFromSessions(sessions, basicSentences, rounds = RECENT_ROUNDS) {
+  const basic = new Set(basicSentences);
+  const found = [];
+
+  for (const row of sessions ?? []) {
+    const list = Array.isArray(row?.sentences) ? row.sentences : [];
+    const targets = list.map(item => item?.target).filter(t => typeof t === 'string' && t !== '');
+    if (targets.length === 0) continue;               // 문장 기록이 없는 연습
+    if (targets.every(t => basic.has(t))) continue;   // 기본 진단 라운드
+
+    found.push(targets);
+    if (found.length === rounds) break;
+  }
+
+  return found.reverse();   // 최신이 앞이었으니 뒤집어 오래된 것이 앞에 오게 한다
+}
