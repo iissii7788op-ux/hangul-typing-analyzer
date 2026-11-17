@@ -246,6 +246,7 @@ h1, h2 { margin: 0; font-weight: 600; }
 }
 
 .practice-suggest p { margin: 0; flex: 1; }
+.practice-suggest .suggest-line { display: block; line-height: 1.7; }
 
 /* ══ 좁은 화면 ════════════════════════════════════════════ */
 @media (max-width: 640px) {

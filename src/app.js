@@ -9,8 +9,9 @@ import { createErrorTracker, countErrorPairs, countByType,
          countByKey, accuracy, TYPE_LABEL } from './diff.js';
 import { isJamo } from './hangul.js';
 import { keyboardLayout } from './keyboard.js';
-import { pickWeakJamo, buildPracticeSentence } from './practice.js';
-import { WORDS } from './words.js';
+import { pickWeakJamo, buildPracticeSet } from './practice.js';
+import { SENTENCES as PRACTICE_SENTENCES } from './sentences.js';
+import { TEMPLATES, CATEGORIES } from './templates.js';
 import { saveSession, loadSessions, loadCumulativeErrors } from './db.js';
 
 // 기본 진단용 문장. 한 문장 안에 여러 자모가 골고루 들어가도록 골랐다.
@@ -395,31 +396,38 @@ function renderTypes(types) {
   }
 }
 
-// 취약 자모가 몰린 맞춤 연습 문장. 배낭 알고리즘이 고른 단어들이다.
-let suggestedSentence = '';
+// 취약 자모가 몰린 맞춤 연습 문장 묶음 (자연스러운 문장으로 바꾼 뒤).
+// 5차시에는 단어를 늘어놓은 한 줄이었고, 이제는 배낭이 고른 자연스러운 문장 2~4개다.
+let suggestedSentences = [];
 
-function renderSuggestion(weakJamo, sentence) {
+function renderSuggestion(weakJamo, sentences) {
   const label = document.getElementById('weak-jamo');
   const textEl = document.getElementById('suggest-text');
   const btn = document.getElementById('btn-practice-suggest');
 
-  suggestedSentence = sentence;
+  suggestedSentences = sentences;
   label.textContent = weakJamo.length ? `취약 자모 ${weakJamo.join(' ')}` : '취약 자모';
 
-  if (!sentence) {
+  if (sentences.length === 0) {
     textEl.classList.add('is-empty');
     textEl.textContent = '오타가 없어 만들 문장이 없습니다';
     btn.disabled = true;
     return;
   }
   textEl.classList.remove('is-empty');
-  textEl.textContent = sentence;
+  // 문장마다 한 줄씩. 한 줄로 이으면 어디서 문장이 끝나는지 안 보인다.
+  textEl.replaceChildren(...sentences.map(s => {
+    const line = document.createElement('span');
+    line.className = 'suggest-line';
+    line.textContent = s;
+    return line;
+  }));
   btn.disabled = false;
 }
 
-// 맞춤 문장 하나만으로 짧게 한 라운드를 돈다.
+// 맞춤 문장 묶음으로 짧게 한 라운드를 돈다. 문장 하나가 한 줄(엔터로 넘기는 단위)이다.
 document.getElementById('btn-practice-suggest').addEventListener('click', () => {
-  if (suggestedSentence) startPractice([suggestedSentence]);
+  if (suggestedSentences.length) startPractice([...suggestedSentences]);
 });
 
 function renderSummary({ acc, cpm, errorCount, hasData }) {
@@ -455,9 +463,10 @@ function showRoundResult() {
   const errorTally = countByKey(ops);
   renderHeatmap(errorTally);
 
-  // 취약 자모를 정하고, 그 자모가 몰린 문장을 배낭 알고리즘으로 만든다 (5차시)
+  // 취약 자모를 정하고, 그 자모가 몰린 문장을 배낭 알고리즘으로 고른다 (5차시)
+  // 지금은 단어 대신 문장을 담고, 문장 틀은 그룹 배낭으로 채워 함께 후보에 올린다.
   const weak = pickWeakJamo(errorTally, ranked, 3);
-  renderSuggestion(weak, buildPracticeSentence(WORDS, weak, 20).text);
+  renderSuggestion(weak, buildPracticeSet(PRACTICE_SENTENCES, TEMPLATES, CATEGORIES, weak).sentences);
 
   const minutes = currentElapsed() / 60000;
   const acc = accuracy(round.targetKeyCount, round.typedKeyCount, ops.length);
@@ -492,7 +501,8 @@ async function saveRound({ acc, cpm, errorPairs, jamoTimes }) {
       errorCount: round.ops.length,
       elapsedMs: currentElapsed(),
       sentences: round.texts,
-      suggested: suggestedSentence,
+      // 표의 칸은 글자 하나라서 문장 묶음을 ' / ' 로 이어 담는다.
+      suggested: suggestedSentences.join(' / '),
       errorPairs,
       jamoTimes,
     });
